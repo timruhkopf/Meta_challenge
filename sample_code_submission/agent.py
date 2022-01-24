@@ -1,6 +1,7 @@
 import random
 import numpy as np
 
+# TODO Reproducability: Setting seeds!
 
 class Agent():
     def __init__(self, number_of_algorithms):
@@ -66,8 +67,8 @@ class Agent():
          }
         """
 
-        ### TO BE IMPLEMENTED ###
-        pass
+        self.dataset_meta_features = dataset_meta_features
+        self.algorithms_meta_features = algorithms_meta_features
 
     def meta_train(self, dataset_meta_features, algorithms_meta_features, validation_learning_curves,
                    test_learning_curves):
@@ -106,7 +107,10 @@ class Agent():
         """
 
         ### TO BE IMPLEMENTED ###
-        pass
+        dataset_meta_features, algorithms_meta_features, validation_learning_curves, test_learning_curves
+
+        # fixme: remove exploratory meta feature analysis
+        self._exploratory_meta_feature_analysis(dataset_meta_features, algorithms_meta_features, validation_learning_curves)
 
     def suggest(self, observation):
         """
@@ -137,4 +141,52 @@ class Agent():
         (9, 9, 80)
         """
         ### TO BE IMPLEMENTED ###
-        pass
+
+        # save the observation to history
+        self.trajectory.append({k: v for k, v in zip(self.trajectory.columns, observation)}, ignore_index=True)
+
+        # TODO replace with sensible suggestion.
+        A_star, A, delta_t = None, None, None
+        return (A_star, A, delta_t)
+
+    def _exploratory_meta_feature_analysis(self, datasets_meta_features, algorithms_meta_features,
+                                           validation_learning_curves):
+        # FIXME: remove me: exploratory analysis of dataset meta features
+
+        # (0) dataset_meta_features ------------------------------------------------
+        # Notice, that index AND name are unique identifiers. Name is dataset name
+        # String_typed_variables are useless variables.
+        import pandas as pd
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+
+        df_meta_features = pd.DataFrame(list(datasets_meta_features.values()), index=datasets_meta_features.keys())
+        string_typed_variables = ['usage', 'name', 'task', 'target_type', 'feat_type', 'metric']
+        df_meta_features[string_typed_variables].describe()
+
+        other_columns = list(set(df_meta_features.columns) - set(string_typed_variables))
+        df_meta_features[other_columns] = df_meta_features[other_columns].astype(float)
+        df_meta_features[other_columns].describe()
+
+        sns.pairplot(data=df_meta_features, vars=other_columns)
+        plt.show()
+
+        # (1) algorithm_meta_features ----------------------------------------------
+        df_algo_meta_features = pd.DataFrame(list(algorithms_meta_features.values()),
+                                             index=algorithms_meta_features.keys())
+        df_algo_meta_features['meta_feature_1'] = df_algo_meta_features['meta_feature_1'].astype(float)
+        # exactly the same overall distribution if grouped by the binary meta feature
+        df_algo_meta_features.groupby('meta_feature_0').describe()
+
+
+        # (2) validation_learning_curves
+        for ds_id in validation_learning_curves.keys():
+            for algo_id, curve in validation_learning_curves[ds_id].items():
+                plt.plot(curve.timestamps, curve.scores,
+                         linestyle='--', marker='o', label=algo_id)
+
+            plt.title('Dataset {}'.format(ds_id))
+            plt.legend(loc='upper right')
+            plt.show()
+
+
