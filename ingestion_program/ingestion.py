@@ -202,7 +202,7 @@ if __name__ == "__main__":
         list_algorithms.remove('.DS_Store')
     list_algorithms.sort()
 
-    # === Import the agent submitted by the participant
+    # === Import the agent submitted by the participant ----------------------------------------------------------------
     path.append(submission_dir)
     from AVERAGE_RANK_AGENT import Agent  # fixme: for debugging: replace with my own Agent script
 
@@ -214,8 +214,8 @@ if __name__ == "__main__":
 
     ################## MAIN LOOP ##################
     # === Init a meta-learning environment
-    env = Meta_Learning_Environment(validation_data_dir, test_data_dir, meta_features_dir, algorithms_meta_features_dir,
-                                    output_dir)
+    env = Meta_Learning_Environment(
+        validation_data_dir, test_data_dir, meta_features_dir, algorithms_meta_features_dir, output_dir)
 
     # === Start iterating, each iteration involves a meta-training step and a meta-testing step
     iteration = 0
