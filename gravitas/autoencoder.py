@@ -43,13 +43,7 @@ class Autoencoder(nn.Module):
 
         return D, Z_data
 
-
-    def loss_gravity(self,
-             D0, D0_fwd,
-             D1, D1_fwd,
-             Z0_data, Z1_data,
-             A0, A1,
-             Z_algo):
+    def loss_gravity(self, D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
         """
         Creates a pairwise (dataset-wise) loss that
         a) enforces a reconstruction of the datasets meta features (i.e. we
@@ -57,6 +51,12 @@ class Autoencoder(nn.Module):
         b) ensure, that algorithms that perform good on datasets are drawn towards
         those datasets in embedding space.
         c) pull together datasets, if similar algorithms performed well on them.
+
+        # Consider: use of squared/linear/learned exponential (based on full
+        # prediction: top_k selection) algo performance for weighing?
+        # Consider: that the 90% performance should also be part of the loss
+        # this might allow to get a ranking immediately from the distances in
+        # embedding space!
 
         :param D0: Dataset 0 meta features
         :param D0_fwd: autoencoder reconstruction of Dataset 0 meta features
@@ -85,26 +85,23 @@ class Autoencoder(nn.Module):
         # and weigh the distances by the algorithm's performances
         # --> pull is normalized by batch size & number of algorithms
         # Fixme: make list comprehension more pytorch style by apropriate broadcasting
-        # Consider: use of squared/linear/learned exponential (based on full prediction: top_k selection) algo
-        #  performance for weighing?
+        # TODO use torch.cdist for distance matrix calculation!
         dataset_algo_distance = [a @ torch.linalg.norm((d - Z_algo), dim=1)
-                                 for d, a in zip(Z0_data, A0 ** 2)]
+                                 for d, a in zip(Z0_data, A0)]
         algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
         # Dataset's mutual "gravity" based on top performing algorithms
+        # TODO use torch.cdist for distance matrix calculation!
         mutual_weighted_dist = [(a0 @ a1.t() / self.n_algos) @ torch.linalg.norm((d0 - d1), dim=1)
-         for d0, d1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
+                                for d0, d1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
         data_similarity = (len(D1[0]) + len(D0)) ** -1 * sum(mutual_weighted_dist)
-
-        # Consider: that the 90% performance should also be part of the loss
-        # this might allow to get a ranking immediately from the distances in
-        # embedding space!
 
         return reconstruction + algo_pull + data_similarity
 
     def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # ignore the other inputs
-        loss = lambda D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, Z_algo:  torch.nn.functional.mse_loss(D0, D0_fwd)
+        loss = lambda D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, Z_algo: \
+            torch.nn.functional.mse_loss(D0, D0_fwd)
         return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
 
     def train(self, train_dataloader, test_dataloader, epochs, lr=0.001):
@@ -129,11 +126,9 @@ class Autoencoder(nn.Module):
                 loss = loss_fn(D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
                 losses.append(loss)
 
-
                 # gradient step
                 loss.backward()
                 optimizer.step()
-
 
             # TODO validation procedure
             # validation every e epochs
@@ -148,21 +143,24 @@ class Autoencoder(nn.Module):
 
         return tracking, losses
 
-
-    def predict_algorithms(self, D):
+    def predict_algorithms(self, D, topk):
         """
+        Find the topk performing algorithm candidates.
 
         :param D: meta features of dataset D
-        :return: sorted tuple: set of likely good performing algorithms and their
+        :param topk: number of candidate algorithms to return.
+        :return: set of indicies representing likely good performing algorithms based on their
         distance in embedding space.
         """
-        # TODO embed dataset.
+        # embed dataset.
+        D, Z_data = self.forward(D)
 
-        # TODO: find k-nearest algorithms.
+        # find k-nearest algorithms.
+        # sort by distance in embedding space.
+        dist_mat = torch.cdist(Z_data, self.Z_algo)
+        top_algo = torch.topk(-dist_mat, k=topk)  # find minimum distance
 
-        # TODO sort by distance in embedding space.
-
-        return None, None
+        return top_algo
 
 
 if __name__ == '__main__':
