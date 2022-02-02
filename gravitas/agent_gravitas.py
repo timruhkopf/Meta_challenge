@@ -1,13 +1,12 @@
 from torch.utils.data import DataLoader
-from itertools import chain, product
-
-from sample_code_submission.agent import Agent
 
 from gravitas.autoencoder import Autoencoder
 from gravitas.dataset_gravitas import Dataset_Gravity
 
 
-class Agent_Gravitas(Agent):
+# TODO seeding
+
+class Agent_Gravitas():
     def __init__(self, number_of_algorithms):
         """
         Initialize the agent
@@ -78,36 +77,87 @@ class Agent_Gravitas(Agent):
                    validation_learning_curves,
                    test_learning_curves,
                    epochs=100):
-        # TODO : Autoencoder, Data, Algo.
-        model = Autoencoder()
+        """
+        Start meta-training the agent with the validation and test learning curves
 
-        # self.preprocess(dataset_meta_features, validation_learning_curves, algorithms_meta_features)
-        # validation_learning_curves, test_learning_curves)
+        Parameters
+        ----------
+        datasets_meta_features : dict of dict of {str: str}
+            Meta-features of meta-training datasets
 
-        dataset_meta_features
-        validation_learning_curves
+        algorithms_meta_features : dict of dict of {str: str}
+            The meta_features of all algorithms
+
+        validation_learning_curves : dict of dict of {int : Learning_Curve}
+            VALIDATION learning curves of meta-training datasets
+
+        test_learning_curves : dict of dict of {int : Learning_Curve}
+            TEST learning curves of meta-training datasets
+
+        Examples:
+        To access the meta-features of a specific dataset:
+        >>> datasets_meta_features['Erik']
+        {'name':'Erik', 'time_budget':'1200', ...}
+
+        To access the validation learning curve of Algorithm 0 on the dataset 'Erik' :
+
+        >>> validation_learning_curves['Erik']['0']
+        <learning_curve.Learning_Curve object at 0x9kwq10eb49a0>
+
+        >>> validation_learning_curves['Erik']['0'].timestamps
+        [196, 319, 334, 374, 409]
+
+        >>> validation_learning_curves['Erik']['0'].scores
+        [0.6465293662860659, 0.6465293748988077, 0.6465293748988145, 0.6465293748988159, 0.6465293748988159]
+        """
 
         # validation dataloader
         valid_dataset = Dataset_Gravity(dataset_meta_features, validation_learning_curves, algorithms_meta_features)
         # valid_dataset.__getitem__(0)
-        # valid_dataset.__getitem_comparesets__(0)
         valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=9)
 
         # test_dataset = Dataset(self.dataset_meta_features, self.algo_valid_learning_curves,
         #                        self.dataset_learning_properties)
         # test_dataloader = DataLoader(test_dataset)
+        test_dataloader = None  # FIXME: replace test_dataloader
 
         # Training procedure
-        test_dataloader = None  # FIXME: replace test_dataloader
+        model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20)
         tracking_pre, losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs)
+        tracking, losses = model.train(valid_dataloader, test_dataloader, epochs)
 
         len(tracking_pre)
         len(losses_pre)
 
-        tracking, losses = model.train(valid_dataloader, test_dataloader, epochs)
-
-        print()
         # TODO : WandB
 
     def suggest(self, observation):
+        """
+        Return a new suggestion based on the observation
+
+        Parameters
+        ----------
+        observation : tuple of (int, float, float)
+            The last observation returned by the environment containing:
+                (1) A: the explored algorithm,
+                (2) C_A: time has been spent for A
+                (3) R_validation_C_A: the validation score of A given C_A
+
+        Returns
+        ----------
+        action : tuple of (int, int, float)
+            The suggested action consisting of 3 things:
+                (1) A_star: algorithm for revealing the next point on its test learning curve
+                            (which will be used to compute the agent's learning curve)
+                (2) A:  next algorithm for exploring and revealing the next point
+                       on its validation learning curve
+                (3) delta_t: time budget will be allocated for exploring the chosen algorithm in (2)
+
+        Examples
+        ----------
+        >>> action = agent.suggest((9, 151.73, 0.5))
+        >>> action
+        (9, 9, 80)
+        """
+
         pass
