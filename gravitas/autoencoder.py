@@ -122,7 +122,7 @@ class Autoencoder(nn.Module):
                 D1_fwd, Z1_data = self.forward(D1)
 
                 # calculate "attracting" forces.
-                loss = loss_fn(D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
+                loss = loss_fn(D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, self.Z_algo)
                 losses.append(loss)
 
                 # gradient step
