@@ -3,6 +3,9 @@ from itertools import chain, product
 
 from sample_code_submission.agent import Agent
 
+from gravitas.autoencoder import Autoencoder
+from gravitas.dataset_gravitas import Dataset_Gravity
+
 
 class Agent_Gravitas(Agent):
     def __init__(self, number_of_algorithms):
