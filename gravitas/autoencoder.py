@@ -43,7 +43,7 @@ class Autoencoder(nn.Module):
 
         return D, Z_data
 
-    def loss_gravity(self, D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+    def loss_gravity(self, D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, Z_algo):
         """
         Creates a pairwise (dataset-wise) loss that
         a) enforces a reconstruction of the datasets meta features (i.e. we
@@ -61,7 +61,6 @@ class Autoencoder(nn.Module):
         :param D0: Dataset 0 meta features
         :param D0_fwd: autoencoder reconstruction of Dataset 0 meta features
         :param D1: Dataset 1 meta features
-        :param D1_fwd: autoencoder reconstruction of Dataset 1 meta features
         :param Z0_data: embedding of dataset 0 meta features
         :param Z1_data: embedding of dataset 1 meta features
         :param A0: vector of algorithm performances on dataset 0
