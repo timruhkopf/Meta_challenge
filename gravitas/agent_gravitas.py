@@ -86,7 +86,8 @@ class Agent_Gravitas(Agent):
 
         # validation dataloader
         valid_dataset = Dataset_Gravity(dataset_meta_features, validation_learning_curves, algorithms_meta_features)
-        valid_dataset.__getitem__(0)
+        # valid_dataset.__getitem__(0)
+        # valid_dataset.__getitem_comparesets__(0)
         valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=9)
 
         # test_dataset = Dataset(self.dataset_meta_features, self.algo_valid_learning_curves,
@@ -95,8 +96,14 @@ class Agent_Gravitas(Agent):
 
         # Training procedure
         test_dataloader = None  # FIXME: replace test_dataloader
-        model.train(valid_dataloader, test_dataloader, epochs)
+        tracking_pre, losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs)
 
+        len(tracking_pre)
+        len(losses_pre)
+
+        tracking, losses = model.train(valid_dataloader, test_dataloader, epochs)
+
+        print()
         # TODO : WandB
 
     def suggest(self, observation):

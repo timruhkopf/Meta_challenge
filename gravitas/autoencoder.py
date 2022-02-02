@@ -24,8 +24,6 @@ class Autoencoder(nn.Module):
         self.embedding_dim = nodes[int(len(nodes) // 2)]
         self.Z_algo = nn.Parameter(td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim]))
 
-        self.mse = nn.MSELoss()
-
     def forward(self, D):
         """
         Forward path through the meta-feature autoencoder
@@ -45,12 +43,13 @@ class Autoencoder(nn.Module):
 
         return D, Z_data
 
-    def loss(self,
+
+    def loss_gravity(self,
              D0, D0_fwd,
              D1, D1_fwd,
              Z0_data, Z1_data,
-             performances_0, performances_1,
-             Z_algo, weights=torch.ones((3,))):
+             A0, A1,
+             Z_algo):
         """
         Creates a pairwise (dataset-wise) loss that
         a) enforces a reconstruction of the datasets meta features (i.e. we
@@ -65,11 +64,10 @@ class Autoencoder(nn.Module):
         :param D1_fwd: autoencoder reconstruction of Dataset 1 meta features
         :param Z0_data: embedding of dataset 0 meta features
         :param Z1_data: embedding of dataset 1 meta features
-        :param performances_0: vector of algorithm performances on dataset 0
-        :param performances_1: vector of algorithm performances on dataset 1
+        :param A0: vector of algorithm performances on dataset 0
+        :param A1: vector of algorithm performances on dataset 1
         :param Z_algo: algorithm embedding vector of same dim as Z_data
-        :param weights: optional weights to weigh the three loss components
-        reconstruction , algo_pull, data_similarity
+
 
         :return: scalar.
         """
@@ -77,21 +75,46 @@ class Autoencoder(nn.Module):
         # reconstruction loss (Autoencoder loss)
         # its purpose is to avoid simple single point solution with catastrophic
         # information loss - in the absence of a repelling force.
-        reconstruction = weights[0] * (self.mse(D0, D0_fwd))
+        # TODO create a pre training with only reconstruction loss
+        reconstruction = torch.nn.functional.mse_loss(D0, D0_fwd)
         # only optimize a single D at a time + self.mse(D_1, D_fwd_1))
 
-        # Algorithm performance "gravity" towards dataset
-        algo_pull = weights[1] * None
+        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
+        # TODO check that direction (sign) is correct!
+        # compute the distance between algos and D0 (batch) dataset in embedding space
+        # and weigh the distances by the algorithm's performances
+        # --> pull is normalized by batch size & number of algorithms
+        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
+        # Consider: use of squared/linear/learned exponential (based on full prediction: top_k selection) algo
+        #  performance for weighing?
+        dataset_algo_distance = [a @ torch.linalg.norm((d - Z_algo), dim=1)
+                                 for d, a in zip(Z0_data, A0 ** 2)]
+        algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
         # Dataset's mutual "gravity" based on top performing algorithms
-        data_similarity = weights[2] * None
+        mutual_weighted_dist = [(a0 @ a1.t() / self.n_algos) @ torch.linalg.norm((d0 - d1), dim=1)
+         for d0, d1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
+        data_similarity = (len(D1[0]) + len(D0)) ** -1 * sum(mutual_weighted_dist)
+
+        # Consider: that the 90% performance should also be part of the loss
+        # this might allow to get a ranking immediately from the distances in
+        # embedding space!
 
         return reconstruction + algo_pull + data_similarity
 
+    def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+        # ignore the other inputs
+        loss = lambda D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, Z_algo:  torch.nn.functional.mse_loss(D0, D0_fwd)
+        return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
+
     def train(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr)
+
+    def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
         losses = []
         test_losses = []
 
+        tracking = []
         optimizer = torch.optim.Adam(self.parameters(), lr)
         for e in range(epochs):
             for i, data in enumerate(train_dataloader):
@@ -103,20 +126,28 @@ class Autoencoder(nn.Module):
                 D1_fwd, Z1_data = self.forward(D1)
 
                 # calculate "attracting" forces.
-                loss = self.loss(D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
+                loss = loss_fn(D0, D0_fwd, D1, D1_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
                 losses.append(loss)
+
 
                 # gradient step
                 loss.backward()
                 optimizer.step()
 
-                # TODO validation procedure
-                # validation every e epochs
-                # test_timer = 50
-                # if i % test_timer == 0:
-                #     test_dataloader # todo sample dataloader
-                #     test_loss = None  # fiDme
-                #     test_losses.append(test_loss)
+
+            # TODO validation procedure
+            # validation every e epochs
+            test_timer = 10
+            if e % test_timer == 0:
+                _, Z_data = self.forward(train_dataloader.dataset.datasets_meta_features)
+
+                tracking.append((self.Z_algo.data.clone(), Z_data))
+            #     test_dataloader # todo sample dataloader
+            #     test_loss = None  # fiDme
+            #     test_losses.append(test_loss)
+
+        return tracking, losses
+
 
     def predict_algorithms(self, D):
         """
@@ -132,6 +163,7 @@ class Autoencoder(nn.Module):
         # TODO sort by distance in embedding space.
 
         return None, None
+
 
 if __name__ == '__main__':
     auto = Autoencoder(nodes=[15, 10, 2, 10, 15])
