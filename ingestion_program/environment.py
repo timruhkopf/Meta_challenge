@@ -6,7 +6,7 @@ import json
 import numpy as np
 import math
 import csv
-from learning_curve import Learning_Curve
+from ingestion_program.learning_curve import Learning_Curve
 
 #=== Verbose mode
 verbose = True

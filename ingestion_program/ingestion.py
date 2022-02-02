@@ -1,6 +1,6 @@
 import os
 from sys import argv, path
-from environment import Meta_Learning_Environment
+from ingestion_program.environment import Meta_Learning_Environment
 import random
 import os
 from sklearn.model_selection import KFold
@@ -204,7 +204,7 @@ if __name__ == "__main__":
 
     # === Import the agent submitted by the participant ----------------------------------------------------------------
     path.append(submission_dir)
-    from AVERAGE_RANK_AGENT import Agent  # fixme: for debugging: replace with my own Agent script
+    from agent_gravitas import Agent_Gravitas as Agent # fixme: for debugging: replace with my own Agent script
 
     # === Clear old output
     clear_output_dir(output_dir)
