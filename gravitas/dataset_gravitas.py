@@ -1,8 +1,11 @@
+import random
+
 import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 from itertools import product
+
 
 class Dataset_Gravity(Dataset):
     def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features):
@@ -15,16 +18,35 @@ class Dataset_Gravity(Dataset):
     def __len__(self):
         return len(self.datasets_meta_features)
 
+    # def __getitem__(self, item):
+    #
+    #     idx = self.data_indicies[item]
+    #     D0, D1 = self.datasets_meta_features[idx[0]], self.datasets_meta_features[idx[1]]
+    #
+    #     # learning_properties
+    #     A0, A1 = self.algo_performances[idx[0]], self.algo_performances[idx[1]]
+    #
+    #     return D0, D1, A0, A1
+
     def __getitem__(self, item):
-        # TODO one vs all (subset of other datasets)
-        # select comparison partners
-        idx = self.data_indicies[item]
-        D0, D1 = self.datasets_meta_features[idx[0]], self.datasets_meta_features[idx[1]]
+        """
+        Compareset get logic:
+        :param item: int. index in the range(0, len(self)) of a dataset that is to be optimized.
+        :return: D0, D1, A0, A1
+        D0: meta features of the dataset that we want to optimize
+        A0: algo performances for D0
+        D1: set of datasets' meta features to compare against (of length k)
+        A1: respective algo performances for D1
+        """
+        # get the dataset & its performances
+        D0 = self.datasets_meta_features[item]
+        A0 = self.algo_performances[item]
 
-
-
-        # learning_properties
-        A0, A1 = self.algo_performances[idx[0]], self.algo_performances[idx[1]]
+        # generate a random compare set
+        # TODO move k to init
+        item_compareset = random.choices(list(set(range(self.nD)) - {item}), k=11)
+        D1 = self.datasets_meta_features[item_compareset]
+        A1 = self.algo_performances[item_compareset]
 
         return D0, D1, A0, A1
 
@@ -120,5 +142,4 @@ class Dataset_Gravity(Dataset):
             index=order
         )  # index = dataset_id, column = algo_id
 
-        self.algo_performances = torch.tensor(algo_performances.values)
-
+        self.algo_performances = torch.tensor(algo_performances.values, dtype=torch.float32)
