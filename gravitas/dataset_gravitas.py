@@ -13,7 +13,7 @@ class Dataset_Gravity(Dataset):
 
         # create pairwise datasets
         # indicies = dataset_meta_features.keys()
-        self.data_indicies = list(tup for tup in product(range(self.nD), range(self.nD)) if tup[0] != tup[1])
+        # self.data_indicies = list(tup for tup in product(range(self.nD), range(self.nD)) if tup[0] != tup[1])
 
     def __len__(self):
         return len(self.datasets_meta_features)
@@ -44,13 +44,14 @@ class Dataset_Gravity(Dataset):
 
         # generate a random compare set
         # TODO move k to init
+        # TODO seedit
         item_compareset = random.choices(list(set(range(self.nD)) - {item}), k=11)
         D1 = self.datasets_meta_features[item_compareset]
         A1 = self.algo_performances[item_compareset]
 
         return D0, D1, A0, A1
 
-    def preprocess(self, dataset_meta_features, validation_learning_curves, algorithms_meta_features):
+    def preprocess(self, dataset_meta_features, validation_learning_curves, algorithms_meta_features, k=0):
         """
         (1) Dataset Meta Features are selected based on being variable and transformed to tensor + normalized
         (2) Learning Curves: for each LC particular properties are read out such as e.g. final performance.
@@ -60,6 +61,7 @@ class Dataset_Gravity(Dataset):
         :param dataset_meta_features:
         :param validation_learning_curves:
         :param algorithms_meta_features:
+        :param k: (optional) set the k least performing algorithm performances to 0
         :return:
         """
         self.nD = len(dataset_meta_features.keys())
@@ -142,4 +144,10 @@ class Dataset_Gravity(Dataset):
             index=order
         )  # index = dataset_id, column = algo_id
 
-        self.algo_performances = torch.tensor(algo_performances.values, dtype=torch.float32)
+        # optional thresholding: remove k least performing
+        algo_performances = torch.tensor(algo_performances.values, dtype=torch.float32)
+        _, ind = torch.topk(algo_performances, k=10, largest=False, dim=1)
+        for i_row, row  in zip(ind, algo_performances):
+            row[i_row] = 0
+
+        self.algo_performances = algo_performances

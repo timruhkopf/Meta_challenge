@@ -5,6 +5,16 @@ import torch.distributions as td
 from itertools import chain
 
 
+def cosine_similarity(A, B):
+    """
+    Cosine_similarity between two matrices
+    :param A: 2d tensor
+    :param B: 2d tensor
+    :return:
+    """
+    return torch.mm(torch.nn.functional.normalize(A), torch.nn.functional.normalize(B).T)
+
+
 class Autoencoder(nn.Module):
     # TODO allow for algo meta features
     def __init__(self, nodes=[10, 8, 2, 8, 10], n_algos=20):
@@ -15,9 +25,13 @@ class Autoencoder(nn.Module):
         """
         super().__init__()
         self.nodes = nodes
-        layers = [nn.Linear(i, o) for i, o in zip(nodes, nodes[1:])]
-        activations = [nn.ReLU()] * (len(nodes) - 2) + [nn.Identity()]
-        self.layers = nn.ModuleList(list(chain.from_iterable(zip(layers, activations))))
+        layers = [nn.Linear(i, o) for i, o in zip(nodes, nodes[1:-1])]
+        activations = [nn.ReLU()] * (len(nodes) - 2)
+        batchnorms = [nn.BatchNorm1d(o) for o in nodes[1:-1]]
+        dropout = [nn.Dropout(p=0.5) for o in nodes[1:-1]]
+        layers = list(chain.from_iterable(zip(layers, batchnorms, dropout, activations))) + [
+            nn.Linear(nodes[-2], nodes[-1])]
+        self.layers = nn.ModuleList(layers)
 
         # initialize the algorithms in embedding space
         self.n_algos = n_algos
@@ -74,7 +88,6 @@ class Autoencoder(nn.Module):
         # reconstruction loss (Autoencoder loss)
         # its purpose is to avoid simple single point solution with catastrophic
         # information loss - in the absence of a repelling force.
-        # TODO create a pre training with only reconstruction loss
         reconstruction = torch.nn.functional.mse_loss(D0, D0_fwd)
         # only optimize a single D at a time + self.mse(D_1, D_fwd_1))
 
@@ -85,15 +98,15 @@ class Autoencoder(nn.Module):
         # --> pull is normalized by batch size & number of algorithms
         # Fixme: make list comprehension more pytorch style by apropriate broadcasting
         # TODO use torch.cdist for distance matrix calculation!
-        dataset_algo_distance = [a @ torch.linalg.norm((d - Z_algo), dim=1)
-                                 for d, a in zip(Z0_data, A0)]
+        dataset_algo_distance = [a @ torch.linalg.norm((d - Z_algo), dim=1) for d, a in zip(Z0_data, A0)]
         algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
         # Dataset's mutual "gravity" based on top performing algorithms
         # TODO use torch.cdist for distance matrix calculation!
-        mutual_weighted_dist = [(a0 @ a1.t() / self.n_algos) @ torch.linalg.norm((d0 - d1), dim=1)
-                                for d0, d1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
-        data_similarity = (len(D1[0]) + len(D0)) ** -1 * sum(mutual_weighted_dist)
+        cos = lambda x1, x2: torch.nn.functional.cosine_similarity(x1, x2, dim=1, eps=1e-08)
+        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
+        data_similarity = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
 
         return reconstruction + algo_pull + data_similarity
 
@@ -104,6 +117,7 @@ class Autoencoder(nn.Module):
         return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
 
     def train(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+        # TODO check convergence: look if neither Z_algo nor Z_data move anymore!
         return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr)
 
     def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
@@ -121,26 +135,42 @@ class Autoencoder(nn.Module):
                 D0_fwd, Z0_data = self.forward(D0)
                 D1_fwd, Z1_data = self.forward(D1)
 
+                # look if there is representation collapse:
+                # D0_cosine = cosine_similarity(Z0_data, Z0_data)
+                # print(torch.var_mean(D0_cosine, 0))
+                print(Z0_data)
+
                 # calculate "attracting" forces.
                 loss = loss_fn(D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, self.Z_algo)
-                losses.append(loss)
+
+                # print(loss)
 
                 # gradient step
                 loss.backward()
                 optimizer.step()
 
-            # TODO validation procedure
+            losses.append(loss)
+
             # validation every e epochs
             test_timer = 10
+            test_losses = []
             if e % test_timer == 0:
+                # look at the gradient step's effects on validation data
                 _, Z_data = self.forward(train_dataloader.dataset.datasets_meta_features)
 
                 tracking.append((self.Z_algo.data.clone(), Z_data))
-            #     test_dataloader # todo sample dataloader
-            #     test_loss = None  # fiDme
-            #     test_losses.append(test_loss)
 
-        return tracking, losses
+                # TODO validation procedure
+                # # test set performance: ranking loss in prediction:
+                # test_diter = test_dataloader.__iter__()
+                # D0, _, A0, _ = next(test_diter)
+                #
+                # # mean across sampled examples.
+                # prediction_rank = self.predict_algorithms(D0, topk=20)
+                # #
+                # # torch.mean(batchrankingloss)
+
+        return tracking, losses, test_losses
 
     def predict_algorithms(self, D, topk):
         """
@@ -152,7 +182,7 @@ class Autoencoder(nn.Module):
         distance in embedding space.
         """
         # embed dataset.
-        D, Z_data = self.forward(D)
+        _, Z_data = self.forward(D)
 
         # find k-nearest algorithms.
         # sort by distance in embedding space.

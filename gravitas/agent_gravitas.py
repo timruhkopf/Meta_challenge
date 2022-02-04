@@ -76,7 +76,7 @@ class Agent_Gravitas():
                    algorithms_meta_features,
                    validation_learning_curves,
                    test_learning_curves,
-                   epochs=100):
+                   epochs=1000):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -123,11 +123,16 @@ class Agent_Gravitas():
 
         # Training procedure
         model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20)
-        tracking_pre, losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs)
-        tracking, losses = model.train(valid_dataloader, test_dataloader, epochs)
+        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=500)
+        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=100)
 
-        len(tracking_pre)
-        len(losses_pre)
+        import torch
+        import matplotlib.pyplot as plt
+        # plot pretrain loss at each epoch.
+        plt.plot(torch.tensor(losses_pre).numpy())
+        plt.show()
+        # len(tracking_pre)
+        # len(losses_pre)
 
         # TODO : WandB
 
@@ -159,5 +164,16 @@ class Agent_Gravitas():
         >>> action
         (9, 9, 80)
         """
+        # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
+
+        # TODO keep track of spent budget & observed performances
+
+        # TODO find the conditional (on dataset based on complexity & on algo convergence speed)
+        #  budget until reaching 90%.
+
+        # TODO check whether or not the algo has surpassed at least 30 % yet
+        # TODO: check when did the last new information arrive if we haven't reached yet the
+        #  75% quantile of conditional expectation distribution; continue; else stop allocating
+        #  budget to this algo and pick another one.
 
         pass
