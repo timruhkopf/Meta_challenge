@@ -38,24 +38,25 @@ class Autoencoder(nn.Module):
         self.embedding_dim = nodes[int(len(nodes) // 2)]
         self.Z_algo = nn.Parameter(td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim]))
 
+    def _encode(self, D):
+        for l in self.layers[:int(len(self.layers) / 2)]:
+            print(D.shape, l)
+            D = l(D)
+        return D
+
+    def _decode(self, D):
+        for l in self.layers[int(len(self.layers) / 2):]:
+            print(D.shape, l)
+            D = l(D)
+        return D
+
     def forward(self, D):
         """
         Forward path through the meta-feature autoencoder
         :param D: input tensor
-        :return: tuple: output tensor, embedding.
+        :return: tuple: output tensor
         """
-        # encoder part
-        for l in self.layers[:int(len(self.layers) / 2)]:
-            D = l(D)
-
-        # dataset embedding
-        Z_data = D
-
-        # decoder part
-        for l in self.layers[int(len(self.layers) / 2):]:
-            D = l(D)
-
-        return D, Z_data
+        return self._decode(self._encode(D))
 
     def loss_gravity(self, D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, Z_algo):
         """
@@ -102,13 +103,20 @@ class Autoencoder(nn.Module):
         algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
         # Dataset's mutual "gravity" based on top performing algorithms
-        # TODO use torch.cdist for distance matrix calculation!
+        # TODO use torch.cdist for distance matrix calculation! instead of cosine similarity.
         cos = lambda x1, x2: torch.nn.functional.cosine_similarity(x1, x2, dim=1, eps=1e-08)
         mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
                                 for z0, z1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
         data_similarity = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
 
-        return reconstruction + algo_pull + data_similarity
+        # TODO: mutual repelling force on datasets? if there cosine similarity is very
+        #  much off (1- similarity) also switch signs on the loss
+        repell = 0.
+        # mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+        #                         for z0, z1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
+        # repell = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
+
+        return reconstruction + algo_pull + data_similarity - repell
 
     def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # ignore the other inputs
@@ -132,8 +140,13 @@ class Autoencoder(nn.Module):
                 optimizer.zero_grad()
 
                 # calculate embedding
-                D0_fwd, Z0_data = self.forward(D0)
-                D1_fwd, Z1_data = self.forward(D1)
+                D0_fwd = self.forward(D0)
+                # D1_fwd = self.forward(D1) # FIXME: batch norm does not accept the dim of the compare datasets!
+                D1_fwd = torch.stack([self.forward(d) for d in D1])
+
+                # todo not recalculate the encoding
+                Z0_data = self._encode(D0)
+                Z1_data = torch.stack([self._encode(d) for d in D1])
 
                 # look if there is representation collapse:
                 # D0_cosine = cosine_similarity(Z0_data, Z0_data)
@@ -156,7 +169,7 @@ class Autoencoder(nn.Module):
             test_losses = []
             if e % test_timer == 0:
                 # look at the gradient step's effects on validation data
-                _, Z_data = self.forward(train_dataloader.dataset.datasets_meta_features)
+                Z_data = self._encode(train_dataloader.dataset.datasets_meta_features)
 
                 tracking.append((self.Z_algo.data.clone(), Z_data))
 
@@ -182,7 +195,7 @@ class Autoencoder(nn.Module):
         distance in embedding space.
         """
         # embed dataset.
-        _, Z_data = self.forward(D)
+        Z_data = self._encode(D)
 
         # find k-nearest algorithms.
         # sort by distance in embedding space.
@@ -195,7 +208,7 @@ class Autoencoder(nn.Module):
 if __name__ == '__main__':
     auto = Autoencoder(nodes=[15, 10, 2, 10, 15])
 
-    auto.forward(td.Uniform(0., 1.).sample([15]))
+    auto.forward(td.Uniform(0., 1.).sample([2, 15]))
 
     # TODO check prediction path:
     D = None  # use some already nown algo and see if top_K is similar ranking-wise
