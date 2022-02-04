@@ -1,3 +1,5 @@
+import numpy as np
+import torch
 from torch.utils.data import DataLoader
 
 from gravitas.autoencoder import Autoencoder
@@ -122,17 +124,32 @@ class Agent_Gravitas():
         test_dataloader = None  # FIXME: replace test_dataloader
 
         # Training procedure
-        model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20)
-        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=500)
-        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=100)
 
-        import torch
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20)
+        model = model.to(device)
+        model.device = device
+        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=500)
+        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=1000)
+
+        # cosines = cosine_similarity(valid_dataloader.dataset.algo_performances,
+        #                           valid_dataloader.dataset.algo_performances)
+        # torch.var_mean(cosines-torch.eye(cosines.shape[0]), dim=0)
+        # import pandas as pd
+        # df = pd.DataFrame((cosines - torch.eye(cosines.shape[0])).numpy())
+        # plt.imshow(df, cmap='hot', interpolation='nearest')
+        # plt.show()
+
         import matplotlib.pyplot as plt
         # plot pretrain loss at each epoch.
-        plt.plot(torch.tensor(losses_pre).numpy())
+        plt.plot(torch.tensor(losses).numpy(), label='gravity')
+        plt.plot(torch.tensor(losses_pre).numpy(),label='pre')
+        plt.legend()
         plt.show()
-        # len(tracking_pre)
-        # len(losses_pre)
+        len(tracking_pre)
+        len(losses_pre)
+        D_test = valid_dataloader.dataset.datasets_meta_features.data.to(device)
+        model._encode(D_test)
 
         # TODO : WandB
 

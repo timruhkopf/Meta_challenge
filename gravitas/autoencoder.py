@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.distributions as td
-
+from tqdm import tqdm
 from itertools import chain
 
 
@@ -40,13 +40,13 @@ class Autoencoder(nn.Module):
 
     def _encode(self, D):
         for l in self.layers[:int(len(self.layers) / 2)]:
-            print(D.shape, l)
+            # print(D.shape, l)
             D = l(D)
         return D
 
     def _decode(self, D):
         for l in self.layers[int(len(self.layers) / 2):]:
-            print(D.shape, l)
+            # print(D.shape, l)
             D = l(D)
         return D
 
@@ -112,7 +112,7 @@ class Autoencoder(nn.Module):
         # TODO: mutual repelling force on datasets? if there cosine similarity is very
         #  much off (1- similarity) also switch signs on the loss
         repell = 0.
-        # mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+        # mutual_weighted_dist = [(1 - cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
         #                         for z0, z1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
         # repell = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
 
@@ -134,15 +134,20 @@ class Autoencoder(nn.Module):
 
         tracking = []
         optimizer = torch.optim.Adam(self.parameters(), lr)
-        for e in range(epochs):
+        for e in tqdm(range(epochs)):
             for i, data in enumerate(train_dataloader):
                 D0, D1, A0, A1 = data
+
+                D0 = D0.to(self.device)
+                D1 = D1.to(self.device)
+                A0 = A0.to(self.device)
+                A1 = A1.to(self.device)
                 optimizer.zero_grad()
 
                 # calculate embedding
                 D0_fwd = self.forward(D0)
                 # D1_fwd = self.forward(D1) # FIXME: batch norm does not accept the dim of the compare datasets!
-                D1_fwd = torch.stack([self.forward(d) for d in D1])
+                # D1_fwd = torch.stack([self.forward(d) for d in D1])
 
                 # todo not recalculate the encoding
                 Z0_data = self._encode(D0)
@@ -151,7 +156,7 @@ class Autoencoder(nn.Module):
                 # look if there is representation collapse:
                 # D0_cosine = cosine_similarity(Z0_data, Z0_data)
                 # print(torch.var_mean(D0_cosine, 0))
-                print(Z0_data)
+                # print(Z0_data)
 
                 # calculate "attracting" forces.
                 loss = loss_fn(D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, self.Z_algo)
@@ -169,7 +174,9 @@ class Autoencoder(nn.Module):
             test_losses = []
             if e % test_timer == 0:
                 # look at the gradient step's effects on validation data
-                Z_data = self._encode(train_dataloader.dataset.datasets_meta_features)
+                D_test = train_dataloader.dataset.datasets_meta_features
+                D_test = D_test.to(self.device)
+                Z_data = self._encode(D_test)
 
                 tracking.append((self.Z_algo.data.clone(), Z_data))
 
@@ -200,7 +207,7 @@ class Autoencoder(nn.Module):
         # find k-nearest algorithms.
         # sort by distance in embedding space.
         dist_mat = torch.cdist(Z_data, self.Z_algo)
-        top_algo = torch.topk(-dist_mat, k=topk)  # find minimum distance
+        top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
 
         return top_algo
 
@@ -212,4 +219,4 @@ if __name__ == '__main__':
 
     # TODO check prediction path:
     D = None  # use some already nown algo and see if top_K is similar ranking-wise
-    auto.predict_algorithms(D)
+    auto.predict_algorithms(D, topk=3)
