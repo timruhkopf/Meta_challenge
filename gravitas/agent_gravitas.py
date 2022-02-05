@@ -19,8 +19,8 @@ class Agent_Gravitas():
             The number of algorithms
 
         """
-        ### TO BE IMPLEMENTED ###
         self.nA = number_of_algorithms
+        self.times = [0.] * self.nA
 
     def reset(self, dataset_meta_features, algorithms_meta_features):
         """
@@ -71,7 +71,8 @@ class Agent_Gravitas():
          '19': {'meta_feature_0': '0', 'meta_feature_1': '1.0'},
          }
         """
-        pass
+        self.times = {k: 0. for k in algorithms_meta_features.keys()}
+        self.obs_performances = {k: 0. for k in algorithms_meta_features.keys()}
 
     def meta_train(self,
                    dataset_meta_features,
@@ -124,12 +125,10 @@ class Agent_Gravitas():
         test_dataloader = None  # FIXME: replace test_dataloader
 
         # Training procedure
-
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20, device=device)
 
-
-        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=10)
+        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=100)
         tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=500)
 
         # cosines = cosine_similarity(valid_dataloader.dataset.algo_performances,
@@ -153,15 +152,28 @@ class Agent_Gravitas():
         d_test = d_test.cpu().detach().numpy()
 
         z_algo = model.Z_algo.cpu().detach().numpy()
-        d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
-        z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
+        # d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
+        # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
 
-        plt.scatter(d_test[:, 0], d_test[:, 1], label = 'datasets')
-        plt.scatter(z_algo[:, 0], z_algo[:, 1], label = 'algorithms')
+        plt.scatter(d_test[:, 0], d_test[:, 1], label='datasets')
+        plt.scatter(z_algo[:, 0], z_algo[:, 1], label='algorithms')
         plt.legend()
         plt.show()
 
-        # TODO : WandB
+        # TODO meta learn convergence speed (on both valid_dataset & test_dataset?
+        # time at 90% convergence for each algorithm based on the complexity.
+        # quantile regression?- so that we can actually predict conditional on the
+        # data meta features (indicating e.g. complexity) when we can be 90% certain the
+        # data set will have converged? --> is there a way to exploit correlations? i.e. take the
+        # other algorithms performances into account for the complexity - inductive biases?
+
+
+    @property
+    def incumbent(self):
+        inc = max(self.obs_performances, key=self.obs_performances.get)
+        inc_perf = self.obs_performances[inc]
+
+        return inc, inc_perf
 
     def suggest(self, observation):
         """
@@ -194,6 +206,9 @@ class Agent_Gravitas():
         # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
 
         # TODO keep track of spent budget & observed performances
+        A, C_A, R = observation
+        self.times[str(A)] += C_A
+        self.obs_performances[str(A)] = R
 
         # TODO find the conditional (on dataset based on complexity & on algo convergence speed)
         #  budget until reaching 90%.
