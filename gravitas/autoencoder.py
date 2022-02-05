@@ -4,6 +4,8 @@ import torch.distributions as td
 from tqdm import tqdm
 from itertools import chain
 
+from typing import List
+
 
 def cosine_similarity(A, B):
     """
@@ -12,13 +14,24 @@ def cosine_similarity(A, B):
     :param B: 2d tensor
     :return:
     """
-    return torch.mm(torch.nn.functional.normalize(A), torch.nn.functional.normalize(B).T)
+    return torch.mm(
+        torch.nn.functional.normalize(A),
+        torch.nn.functional.normalize(B).T
+    )
 
 
 class Autoencoder(nn.Module):
     # TODO allow for algo meta features
-    def __init__(self, nodes=[10, 8, 2, 8, 10], weights=[1., 1., 1., 1.], repellent_share=0.33, n_algos=20,
-                 device=None):
+    def __init__(
+        self,
+        input_dim: int = 10,
+        hidden_dims: List[int] = [8,4],
+        latent_dim: int = 2,
+        weights=[1.0, 1.0, 1.0, 1.0],
+        repellent_share=0.33,
+        n_algos=20,
+        device=None,
+    ):
         """
 
         :param nodes: list of number of nodes from input to output
@@ -33,30 +46,74 @@ class Autoencoder(nn.Module):
         self.repellent_share = repellent_share
 
         # construct the autoencoder
-        self.nodes = nodes
-        layers = [nn.Linear(i, o) for i, o in zip(nodes, nodes[1:-1])]
-        activations = [nn.ReLU()] * (len(nodes) - 2)
-        batchnorms = [nn.BatchNorm1d(o) for o in nodes[1:-1]]
-        dropout = [nn.Dropout(p=0.5) for o in nodes[1:-1]]
-        layers = list(chain.from_iterable(zip(layers, batchnorms, dropout, activations))) + [
-            nn.Linear(nodes[-2], nodes[-1])]
-        self.layers = nn.ModuleList(layers)
+        self.latent_dim = latent_dim
+        self.input_dim = input_dim
+        self.hidden_dims = hidden_dims
+
+        self._build_network()
 
         # initialize the algorithms in embedding space
         self.n_algos = n_algos
-        self.embedding_dim = nodes[int(len(nodes) // 2)]
-        self.Z_algo = nn.Parameter(td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim]))
+        self.embedding_dim = self.latent_dim
+        self.Z_algo = nn.Parameter(
+            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
+        )
 
         self.to(self.device)
 
-    def _encode(self, D):
-        for l in self.layers[:int(len(self.layers) / 2)]:
+    def _build_network(self) -> None:
+        """
+        Builds the encoder and decoder networks
+        """
+        # Make the Encoder
+        modules = []
+
+        hidden_dims = self.hidden_dims
+        input_dim = self.input_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.latent_dim))
+        modules.append(nn.BatchNorm1d(self.latent_dim))
+        modules.append(nn.Dropout(p=0.5))
+        modules.append(nn.ReLU())
+
+        self.encoder = torch.nn.Sequential(*modules)
+
+        # Make the decoder
+        modules = []
+
+        hidden_dims.reverse()
+        input_dim = self.latent_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.input_dim))
+        modules.append(nn.Sigmoid(input_dim, self.input_dim))
+
+
+        self.decoder = nn.Sequential(*modules)
+
+
+
+    def encode(self, D):
+        for l in self.layers[: int(len(self.layers) / 2)]:
             # print(D.shape, l)
             D = l(D)
         return D
 
-    def _decode(self, D):
-        for l in self.layers[int(len(self.layers) / 2):]:
+    def decode(self, D):
+        for l in self.layers[int(len(self.layers) / 2) :]:
             # print(D.shape, l)
             D = l(D)
         return D
@@ -67,7 +124,7 @@ class Autoencoder(nn.Module):
         :param D: input tensor
         :return: tuple: output tensor
         """
-        return self._decode(self._encode(D))
+        return self.decode(self.encode(D))
 
     def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
         """
@@ -100,7 +157,6 @@ class Autoencoder(nn.Module):
         # its purpose is to avoid simple single point solution with catastrophic
         # information loss - in the absence of a repelling force.
         reconstruction = torch.nn.functional.mse_loss(D0, D0_fwd)
-
 
         # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
         # TODO check that direction (sign) is correct!
@@ -184,8 +240,8 @@ class Autoencoder(nn.Module):
                 # D1_fwd = torch.stack([self.forward(d) for d in D1])
 
                 # todo not recalculate the encoding
-                Z0_data = self._encode(D0)
-                Z1_data = torch.stack([self._encode(d) for d in D1])
+                Z0_data = self.encode(D0)
+                Z1_data = torch.stack([self.encode(d) for d in D1])
 
                 # look if there is representation collapse:
                 # D0_cosine = cosine_similarity(Z0_data, Z0_data)
@@ -210,7 +266,7 @@ class Autoencoder(nn.Module):
                 # look at the gradient step's effects on validation data
                 D_test = train_dataloader.dataset.datasets_meta_features
                 D_test = D_test.to(self.device)
-                Z_data = self._encode(D_test)
+                Z_data = self.encode(D_test)
 
                 tracking.append((self.Z_algo.data.clone(), Z_data))
 
@@ -236,7 +292,7 @@ class Autoencoder(nn.Module):
         distance in embedding space.
         """
         # embed dataset.
-        Z_data = self._encode(D)
+        Z_data = self.encode(D)
 
         # find k-nearest algorithms.
         # sort by distance in embedding space.
@@ -246,11 +302,16 @@ class Autoencoder(nn.Module):
         return top_algo
 
 
-if __name__ == '__main__':
-    auto = Autoencoder(nodes=[15, 10, 2, 10, 15])
+if __name__ == "__main__":
+    auto_enc = Autoencoder(
+        input_dim = 15,
+        latent_dim = 2,
+        hidden_dims = [10],
+    )
+    print(auto_enc)
 
-    auto.forward(td.Uniform(0., 1.).sample([2, 15]))
+    #auto.forward(td.Uniform(0.0, 1.0).sample([2, 15]))
 
     # TODO check prediction path:
-    D = None  # use some already nown algo and see if top_K is similar ranking-wise
-    auto.predict_algorithms(D, topk=3)
+    #D = None  # use some already nown algo and see if top_K is similar ranking-wise
+    #auto.predict_algorithms(D, topk=3)
