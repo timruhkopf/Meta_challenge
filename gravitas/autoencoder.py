@@ -4,6 +4,8 @@ import torch.distributions as td
 from tqdm import tqdm
 from itertools import chain
 
+from typing import List 
+
 
 def cosine_similarity(A, B):
     """
@@ -12,13 +14,24 @@ def cosine_similarity(A, B):
     :param B: 2d tensor
     :return:
     """
-    return torch.mm(torch.nn.functional.normalize(A), torch.nn.functional.normalize(B).T)
+    return torch.mm(
+        torch.nn.functional.normalize(A), 
+        torch.nn.functional.normalize(B).T
+    )
 
-
+  
 class Autoencoder(nn.Module):
     # TODO allow for algo meta features
-    def __init__(self, nodes=[10, 8, 2, 8, 10], weights=[1., 1., 1., 1.], repellent_share=0.33, n_algos=20,
-                 device=None):
+    def __init__(
+        self,
+        input_dim: int = 10,
+        hidden_dims: List[int] = [8,4],
+        latent_dim: int = 2,
+        weights=[1.0, 1.0, 1.0, 1.0],  
+        repellent_share=0.33,
+        n_algos=20,
+        device=None,
+    ):
         """
 
         :param nodes: list of number of nodes from input to output
@@ -33,30 +46,74 @@ class Autoencoder(nn.Module):
         self.repellent_share = repellent_share
 
         # construct the autoencoder
-        self.nodes = nodes
-        layers = [nn.Linear(i, o) for i, o in zip(nodes, nodes[1:-1])]
-        activations = [nn.ReLU()] * (len(nodes) - 2)
-        batchnorms = [nn.BatchNorm1d(o) for o in nodes[1:-1]]
-        dropout = [nn.Dropout(p=0.5) for o in nodes[1:-1]]
-        layers = list(chain.from_iterable(zip(layers, batchnorms, dropout, activations))) + [
-            nn.Linear(nodes[-2], nodes[-1])]
-        self.layers = nn.ModuleList(layers)
+        self.latent_dim = latent_dim
+        self.input_dim = input_dim
+        self.hidden_dims = hidden_dims
+
+        self._build_network()
 
         # initialize the algorithms in embedding space
         self.n_algos = n_algos
-        self.embedding_dim = nodes[int(len(nodes) // 2)]
-        self.Z_algo = nn.Parameter(td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim]))
+        self.embedding_dim = self.latent_dim
+        self.Z_algo = nn.Parameter(
+            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
+        )
 
         self.to(self.device)
 
-    def _encode(self, D):
-        for l in self.layers[:int(len(self.layers) / 2)]:
+    def _build_network(self) -> None:
+        """
+        Builds the encoder and decoder networks
+        """
+        # Make the Encoder
+        modules = []
+
+        hidden_dims = self.hidden_dims
+        input_dim = self.input_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.latent_dim))
+        modules.append(nn.BatchNorm1d(self.latent_dim))
+        modules.append(nn.Dropout(p=0.5))
+        modules.append(nn.ReLU())
+
+        self.encoder = torch.nn.Sequential(*modules)
+
+        # Make the decoder
+        modules = []
+
+        hidden_dims.reverse()
+        input_dim = self.latent_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.input_dim))
+        modules.append(nn.Sigmoid(input_dim, self.input_dim))
+
+
+        self.decoder = nn.Sequential(*modules)
+    
+    
+    
+    def encode(self, D):
+        for l in self.layers[: int(len(self.layers) / 2)]:
             # print(D.shape, l)
             D = l(D)
         return D
 
-    def _decode(self, D):
-        for l in self.layers[int(len(self.layers) / 2):]:
+    def decode(self, D):
+        for l in self.layers[int(len(self.layers) / 2) :]:
             # print(D.shape, l)
             D = l(D)
         return D
@@ -67,7 +124,7 @@ class Autoencoder(nn.Module):
         :param D: input tensor
         :return: tuple: output tensor
         """
-        return self._decode(self._encode(D))
+        return self.decode(self.encode(D))
 
     def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
         """
@@ -101,7 +158,6 @@ class Autoencoder(nn.Module):
         # information loss - in the absence of a repelling force.
         reconstruction = torch.nn.functional.mse_loss(D0, D0_fwd)
 
-
         # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
         # TODO check that direction (sign) is correct!
         # compute the distance between algos and D0 (batch) dataset in embedding space
@@ -109,17 +165,21 @@ class Autoencoder(nn.Module):
         # --> pull is normalized by batch size & number of algorithms
         # Fixme: make list comprehension more pytorch style by apropriate broadcasting
         # TODO use torch.cdist for distance matrix calculation!
-        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
+        dataset_algo_distance = [
+            a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)
+        ]
         algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
         # Dataset's mutual "gravity" based on top performing algorithms
         # TODO use torch.cdist for distance matrix calculation! instead of cosine similarity.
-        cos = lambda x1, x2: torch.nn.functional.cosine_similarity(x1, x2, dim=1, eps=1e-08)
+        cos = lambda x1, x2: torch.nn.functional.cosine_similarity(
+            x1, x2, dim=1, eps=1e-08
+        )
         # mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
         #                         for z0, z1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
         # data_attractor = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
 
-        # fixme: remove next lines
+        # fixmed: remove next lines
         #  batch calculation of embedding space distances (in reference to the d0 dataset.
         # batch_dim = D0.shape[0]
         # b = Z0_data.view((batch_dim, 1, self.embedding_dim)) - Z1_data
@@ -131,36 +191,54 @@ class Autoencoder(nn.Module):
 
         # batch similarity order + no_repellents
         no_comparisons = A1.shape[1]
-        similarity_order_ind = torch.stack([torch.argsort(cos(a0, a1)) for a0, a1 in zip(A0, A1)])
+        similarity_order_ind = torch.stack(
+            [torch.argsort(cos(a0, a1)) for a0, a1 in zip(A0, A1)]
+        )
         no_repellent = int(no_comparisons * self.repellent_share)
 
         # find the repellent forces
         repellents = similarity_order_ind[:, :no_repellent]
         Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
         A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
-        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
-        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+        mutual_weighted_dist = [
+            cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+            for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)
+        ]
+        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(
+            mutual_weighted_dist
+        )
 
         # find the attracting forces
         attractors = similarity_order_ind[:, no_repellent:]
         Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
         A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
-        mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
-        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
+        mutual_weighted_dist = [
+            (1 - cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+            for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)
+        ]
+        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(
+            mutual_weighted_dist
+        )
 
-        return torch.stack([reconstruction, algo_pull, data_attractor, (-1)*data_repellent]) @ self.weights
+        return (
+            torch.stack(
+                [reconstruction, algo_pull, data_attractor, (-1) * data_repellent]
+            )
+            @ self.weights
+        )
 
     def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # ignore the other inputs
-        loss = lambda D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo: \
-            torch.nn.functional.mse_loss(D0, D0_fwd)
+        loss = lambda D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo: torch.nn.functional.mse_loss(
+            D0, D0_fwd
+        )
         return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
 
     def train(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # TODO check convergence: look if neither Z_algo nor Z_data move anymore!
-        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr)
+        return self._train(
+            self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr
+        )
 
     def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
         losses = []
@@ -184,8 +262,8 @@ class Autoencoder(nn.Module):
                 # D1_fwd = torch.stack([self.forward(d) for d in D1])
 
                 # todo not recalculate the encoding
-                Z0_data = self._encode(D0)
-                Z1_data = torch.stack([self._encode(d) for d in D1])
+                Z0_data = self.encode(D0)
+                Z1_data = torch.stack([self.encode(d) for d in D1])
 
                 # look if there is representation collapse:
                 # D0_cosine = cosine_similarity(Z0_data, Z0_data)
@@ -210,7 +288,7 @@ class Autoencoder(nn.Module):
                 # look at the gradient step's effects on validation data
                 D_test = train_dataloader.dataset.datasets_meta_features
                 D_test = D_test.to(self.device)
-                Z_data = self._encode(D_test)
+                Z_data = self.encode(D_test)
 
                 tracking.append((self.Z_algo.data.clone(), Z_data))
 
@@ -236,7 +314,7 @@ class Autoencoder(nn.Module):
         distance in embedding space.
         """
         # embed dataset.
-        Z_data = self._encode(D)
+        Z_data = self.encode(D)
 
         # find k-nearest algorithms.
         # sort by distance in embedding space.
@@ -246,11 +324,16 @@ class Autoencoder(nn.Module):
         return top_algo
 
 
-if __name__ == '__main__':
-    auto = Autoencoder(nodes=[15, 10, 2, 10, 15])
+if __name__ == "__main__":
+    auto_enc = Autoencoder(
+        input_dim = 15,
+        latent_dim = 2,
+        hidden_dims = [10],
+    )
+    print(auto_enc)
 
-    auto.forward(td.Uniform(0., 1.).sample([2, 15]))
+    #auto.forward(td.Uniform(0.0, 1.0).sample([2, 15]))
 
     # TODO check prediction path:
-    D = None  # use some already nown algo and see if top_K is similar ranking-wise
-    auto.predict_algorithms(D, topk=3)
+    #D = None  # use some already nown algo and see if top_K is similar ranking-wise
+    #auto.predict_algorithms(D, topk=3)

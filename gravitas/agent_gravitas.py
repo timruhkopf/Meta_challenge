@@ -8,7 +8,8 @@ from gravitas.dataset_gravitas import Dataset_Gravity
 
 # TODO seeding
 
-class Agent_Gravitas():
+
+class Agent_Gravitas:
     def __init__(self, number_of_algorithms):
         """
         Initialize the agent
@@ -73,12 +74,14 @@ class Agent_Gravitas():
         """
         pass
 
-    def meta_train(self,
-                   dataset_meta_features,
-                   algorithms_meta_features,
-                   validation_learning_curves,
-                   test_learning_curves,
-                   epochs=1000):
+    def meta_train(
+        self,
+        dataset_meta_features,
+        algorithms_meta_features,
+        validation_learning_curves,
+        test_learning_curves,
+        epochs=1000,
+    ):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -114,7 +117,9 @@ class Agent_Gravitas():
         """
 
         # validation dataloader
-        valid_dataset = Dataset_Gravity(dataset_meta_features, validation_learning_curves, algorithms_meta_features)
+        valid_dataset = Dataset_Gravity(
+            dataset_meta_features, validation_learning_curves, algorithms_meta_features
+        )
         # valid_dataset.__getitem__(0)
         valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=9)
 
@@ -126,11 +131,20 @@ class Agent_Gravitas():
         # Training procedure
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20, device=device)
+        model = Autoencoder(
+                    input_dim =10, 
+                    latent_dim = 2,
+                    hidden_dims = [8,4,3],
+                    n_algos=20, 
+                    device=device
+                )
 
-
-        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=10)
-        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=500)
+        tracking_pre, losses_pre, test_losses_pre = model.pretrain(
+            valid_dataloader, test_dataloader, epochs=10
+        )
+        tracking, losses, test_losses = model.train(
+            valid_dataloader, test_dataloader, epochs=500
+        )
 
         # cosines = cosine_similarity(valid_dataloader.dataset.algo_performances,
         #                           valid_dataloader.dataset.algo_performances)
@@ -141,23 +155,24 @@ class Agent_Gravitas():
         # plt.show()
 
         import matplotlib.pyplot as plt
+
         # plot pretrain loss at each epoch.
-        plt.plot(torch.tensor(losses).numpy(), label='gravity')
-        plt.plot(torch.tensor(losses_pre).numpy(), label='pre')
+        plt.plot(torch.tensor(losses).numpy(), label="gravity")
+        plt.plot(torch.tensor(losses_pre).numpy(), label="pre")
         plt.legend()
         plt.show()
         len(tracking_pre)
         len(losses_pre)
         D_test = valid_dataloader.dataset.datasets_meta_features.data.to(device)
-        d_test = model._encode(D_test)
+        d_test = model.encode(D_test)
         d_test = d_test.cpu().detach().numpy()
 
         z_algo = model.Z_algo.cpu().detach().numpy()
         d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
         z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
 
-        plt.scatter(d_test[:, 0], d_test[:, 1], label = 'datasets')
-        plt.scatter(z_algo[:, 0], z_algo[:, 1], label = 'algorithms')
+        plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
+        plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
         plt.legend()
         plt.show()
 

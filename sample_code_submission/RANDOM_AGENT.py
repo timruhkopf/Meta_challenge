@@ -2,7 +2,7 @@ import random
 import numpy as np
 
 
-class Agent():
+class Agent:
     """
     RANDOM SEARCH AGENT
     """
@@ -70,8 +70,13 @@ class Agent():
         self.algorithms_meta_features = algorithms_meta_features
         self.validation_last_scores = [0.0 for i in range(self.nA)]
 
-    def meta_train(self, datasets_meta_features, algorithms_meta_features, validation_learning_curves,
-                   test_learning_curves):
+    def meta_train(
+        self,
+        datasets_meta_features,
+        algorithms_meta_features,
+        validation_learning_curves,
+        test_learning_curves,
+    ):
         """
         Start meta-training the agent with the validation and test learning curves
 

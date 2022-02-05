@@ -2,7 +2,8 @@ import random
 import numpy as np
 from scipy.stats import rankdata
 
-class Agent():
+
+class Agent:
     """
     AVERAGE RANK AGENT
 
@@ -13,6 +14,7 @@ class Agent():
 
     During the META-TESTING phase, it spends the entire time budget for the highest ranked algorithm
     """
+
     def __init__(self, number_of_algorithms):
         """
         Initialize the agent
@@ -75,7 +77,13 @@ class Agent():
         self.dataset_metadata = dataset_meta_features
         self.validation_last_scores = [0.0 for i in range(self.nA)]
 
-    def meta_train(self, datasets_meta_features, algorithms_meta_features, validation_learning_curves, test_learning_curves):
+    def meta_train(
+        self,
+        datasets_meta_features,
+        algorithms_meta_features,
+        validation_learning_curves,
+        test_learning_curves,
+    ):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -110,17 +118,17 @@ class Agent():
         [0.6465293662860659, 0.6465293748988077, 0.6465293748988145, 0.6465293748988159, 0.6465293748988159]
         """
 
-        #=== Compute the averaged ranking across all meta-training datasets
-        #=== The ranking is built based on the last score of the learning curve
+        # === Compute the averaged ranking across all meta-training datasets
+        # === The ranking is built based on the last score of the learning curve
         global_ranks = []
         for dataset in test_learning_curves:
             lc = test_learning_curves[dataset]
             last_scores = [lc[algo].scores[-1] for algo in lc]
-            dataset_ranks = rankdata(last_scores, method='min')
+            dataset_ranks = rankdata(last_scores, method="min")
             global_ranks.append(dataset_ranks)
         averaged_ranks = np.array(global_ranks).mean(axis=0)
 
-        #=== Update the current best algorithm
+        # === Update the current best algorithm
         self.best_algo = averaged_ranks.argmin()
 
     def suggest(self, observation):
@@ -154,12 +162,12 @@ class Agent():
 
         next_algo_to_reveal = self.best_algo
 
-        #=== Sample delta_t (although the agent's spending all the time budget on only one algoritm,
+        # === Sample delta_t (although the agent's spending all the time budget on only one algoritm,
         #                    we split it into multiple actions with delta_t is uniformly sampled
         #                    to have more points on the agents' learning curve)
         delta_t = random.randrange(10, 100, 10)
 
-        if observation==None:
+        if observation == None:
             best_algo_for_test = None
         else:
             A, C_A, R_validation_C_A = observation
