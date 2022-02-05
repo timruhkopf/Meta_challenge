@@ -99,24 +99,47 @@ class Autoencoder(nn.Module):
         # --> pull is normalized by batch size & number of algorithms
         # Fixme: make list comprehension more pytorch style by apropriate broadcasting
         # TODO use torch.cdist for distance matrix calculation!
-        dataset_algo_distance = [a @ torch.linalg.norm((d - Z_algo), dim=1) for d, a in zip(Z0_data, A0)]
+        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
         algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
         # Dataset's mutual "gravity" based on top performing algorithms
         # TODO use torch.cdist for distance matrix calculation! instead of cosine similarity.
         cos = lambda x1, x2: torch.nn.functional.cosine_similarity(x1, x2, dim=1, eps=1e-08)
-        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
-        data_similarity = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
-
-        # TODO: mutual repelling force on datasets? if there cosine similarity is very
-        #  much off (1- similarity) also switch signs on the loss
-        repell = 0.
-        # mutual_weighted_dist = [(1 - cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+        # mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
         #                         for z0, z1, a0, a1 in zip(Z0_data, Z1_data, A0, A1)]
-        # repell = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
+        # data_attractor = len(D1[0]) ** -1 * sum(mutual_weighted_dist)
 
-        return reconstruction + algo_pull + data_similarity - repell
+        # fixme: remove next lines
+        #  batch calculation of embedding space distances (in reference to the d0 dataset.
+        # batch_dim = D0.shape[0]
+        # b = Z0_data.view((batch_dim, 1, self.embedding_dim)) - Z1_data
+        # d = torch.linalg.norm(b, dim=2)  # norm of comparisons of each dataset with its comparison set
+        # calculate the batch similarities - based on algo performances
+        # t = torch.ones(9, dtype=torch.int).to(self.device)
+        # A0_repeated = torch.repeat_interleave(A0, t*11, dim=0).reshape(9,11, 20)
+        # similarity = torch.stack([cos(a0, a1) for a0, a1 in zip(A0, A1)])
+
+        # batch similarity order + no_repellents
+        similarity_order_ind = torch.stack([torch.argsort(cos(a0, a1)) for a0, a1 in zip(A0, A1)])
+        repellent_div = (similarity_order_ind.shape[1] // 3)
+
+        # find the repellent forces
+        repellents = similarity_order_ind[:, :repellent_div]  # 3 is the third parameter here
+        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
+        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
+        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
+        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+
+        # find the attracting forces
+        attractors = similarity_order_ind[:, repellent_div:]
+        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
+        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
+        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
+        data_attractor = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+
+        return reconstruction + algo_pull + data_attractor - data_repellent
 
     def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # ignore the other inputs
