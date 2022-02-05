@@ -138,7 +138,7 @@ class Autoencoder(nn.Module):
         repellents = similarity_order_ind[:, :no_repellent]
         Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
         A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
-        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+        mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
                                 for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
         data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
 
@@ -146,7 +146,7 @@ class Autoencoder(nn.Module):
         attractors = similarity_order_ind[:, no_repellent:]
         Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
         A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
-        mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
                                 for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
         data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
 
