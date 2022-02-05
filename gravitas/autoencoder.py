@@ -69,7 +69,7 @@ class Autoencoder(nn.Module):
         """
         return self._decode(self._encode(D))
 
-    def loss_gravity(self, D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, Z_algo):
+    def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
         """
         Creates a pairwise (dataset-wise) loss that
         a) enforces a reconstruction of the datasets meta features (i.e. we
@@ -86,7 +86,6 @@ class Autoencoder(nn.Module):
 
         :param D0: Dataset 0 meta features
         :param D0_fwd: autoencoder reconstruction of Dataset 0 meta features
-        :param D1: Dataset 1 meta features
         :param Z0_data: embedding of dataset 0 meta features
         :param Z1_data: embedding of dataset 1 meta features
         :param A0: vector of algorithm performances on dataset 0
@@ -155,7 +154,7 @@ class Autoencoder(nn.Module):
 
     def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # ignore the other inputs
-        loss = lambda D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, Z_algo: \
+        loss = lambda D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo: \
             torch.nn.functional.mse_loss(D0, D0_fwd)
         return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
 
@@ -194,7 +193,7 @@ class Autoencoder(nn.Module):
                 # print(Z0_data)
 
                 # calculate "attracting" forces.
-                loss = loss_fn(D0, D0_fwd, D1, Z0_data, Z1_data, A0, A1, self.Z_algo)
+                loss = loss_fn(D0, D0_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
 
                 # print(loss)
 
