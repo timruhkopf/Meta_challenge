@@ -130,7 +130,7 @@ class Agent_Gravitas():
         model = model.to(device)
         model.device = device
         tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=500)
-        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=1000)
+        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=500)
 
         # cosines = cosine_similarity(valid_dataloader.dataset.algo_performances,
         #                           valid_dataloader.dataset.algo_performances)
@@ -143,13 +143,23 @@ class Agent_Gravitas():
         import matplotlib.pyplot as plt
         # plot pretrain loss at each epoch.
         plt.plot(torch.tensor(losses).numpy(), label='gravity')
-        plt.plot(torch.tensor(losses_pre).numpy(),label='pre')
+        plt.plot(torch.tensor(losses_pre).numpy(), label='pre')
         plt.legend()
         plt.show()
         len(tracking_pre)
         len(losses_pre)
         D_test = valid_dataloader.dataset.datasets_meta_features.data.to(device)
-        model._encode(D_test)
+        d_test = model._encode(D_test)
+        d_test = d_test.cpu().detach().numpy()
+
+        z_algo = model.Z_algo.cpu().detach().numpy()
+        d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
+        z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
+
+        plt.scatter(d_test[:, 0], d_test[:, 1], label = 'datasets')
+        plt.scatter(z_algo[:, 0], z_algo[:, 1], label = 'algorithms')
+        plt.legend()
+        plt.show()
 
         # TODO : WandB
 
