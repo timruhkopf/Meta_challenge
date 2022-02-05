@@ -135,11 +135,11 @@ class Autoencoder(nn.Module):
         attractors = similarity_order_ind[:, repellent_div:]
         Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
         A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
-        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+        mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
                                 for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
-        data_attractor = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
 
-        return reconstruction + algo_pull + data_attractor - data_repellent
+        return 10*reconstruction + algo_pull + data_attractor - data_repellent
 
     def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # ignore the other inputs
