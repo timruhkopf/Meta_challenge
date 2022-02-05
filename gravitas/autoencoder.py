@@ -17,13 +17,22 @@ def cosine_similarity(A, B):
 
 class Autoencoder(nn.Module):
     # TODO allow for algo meta features
-    def __init__(self, nodes=[10, 8, 2, 8, 10], n_algos=20):
+    def __init__(self, nodes=[10, 8, 2, 8, 10], weights=[1., 1., 1., 1.], repellent_share=0.33, n_algos=20,
+                 device=None):
         """
 
         :param nodes: list of number of nodes from input to output
+        :param weights: list of floats indicating the weights in the loss:
+        reconstruction, algorithm pull towards datasets, data-similarity-attraction,
+        data-dissimilarity-repelling.
         :param n_algos: number of algorithms to place in the embedding space
         """
         super().__init__()
+        self.device = device
+        self.weights = torch.tensor(weights).to(device)
+        self.repellent_share = repellent_share
+
+        # construct the autoencoder
         self.nodes = nodes
         layers = [nn.Linear(i, o) for i, o in zip(nodes, nodes[1:-1])]
         activations = [nn.ReLU()] * (len(nodes) - 2)
@@ -37,6 +46,8 @@ class Autoencoder(nn.Module):
         self.n_algos = n_algos
         self.embedding_dim = nodes[int(len(nodes) // 2)]
         self.Z_algo = nn.Parameter(td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim]))
+
+        self.to(self.device)
 
     def _encode(self, D):
         for l in self.layers[:int(len(self.layers) / 2)]:
@@ -90,7 +101,7 @@ class Autoencoder(nn.Module):
         # its purpose is to avoid simple single point solution with catastrophic
         # information loss - in the absence of a repelling force.
         reconstruction = torch.nn.functional.mse_loss(D0, D0_fwd)
-        # only optimize a single D at a time + self.mse(D_1, D_fwd_1))
+
 
         # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
         # TODO check that direction (sign) is correct!
@@ -120,11 +131,12 @@ class Autoencoder(nn.Module):
         # similarity = torch.stack([cos(a0, a1) for a0, a1 in zip(A0, A1)])
 
         # batch similarity order + no_repellents
+        no_comparisons = A1.shape[1]
         similarity_order_ind = torch.stack([torch.argsort(cos(a0, a1)) for a0, a1 in zip(A0, A1)])
-        repellent_div = (similarity_order_ind.shape[1] // 3)
+        no_repellent = int(no_comparisons * self.repellent_share)
 
         # find the repellent forces
-        repellents = similarity_order_ind[:, :repellent_div]  # 3 is the third parameter here
+        repellents = similarity_order_ind[:, :no_repellent]
         Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
         A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
         mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
@@ -132,14 +144,14 @@ class Autoencoder(nn.Module):
         data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
 
         # find the attracting forces
-        attractors = similarity_order_ind[:, repellent_div:]
+        attractors = similarity_order_ind[:, no_repellent:]
         Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
         A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
         mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
                                 for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
         data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
 
-        return 10*reconstruction + algo_pull + data_attractor - data_repellent
+        return torch.stack([reconstruction, algo_pull, data_attractor, (-1)*data_repellent]) @ self.weights
 
     def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # ignore the other inputs

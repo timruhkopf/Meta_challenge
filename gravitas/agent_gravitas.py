@@ -126,10 +126,10 @@ class Agent_Gravitas():
         # Training procedure
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20)
-        model = model.to(device)
-        model.device = device
-        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=500)
+        model = Autoencoder(nodes=[10, 8, 2, 8, 10], n_algos=20, device=device)
+
+
+        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=10)
         tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=500)
 
         # cosines = cosine_similarity(valid_dataloader.dataset.algo_performances,
