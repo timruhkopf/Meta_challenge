@@ -83,7 +83,7 @@ class Autoencoder(nn.Module):
         modules.append(nn.Dropout(p=0.5))
         modules.append(nn.ReLU())
 
-        self.encoder = torch.nn.Sequential(*modules)
+        self.encode = torch.nn.Sequential(*modules)
 
         # Make the decoder
         modules = []
@@ -99,24 +99,24 @@ class Autoencoder(nn.Module):
             input_dim = h_dim
 
         modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid(input_dim, self.input_dim))
+        modules.append(nn.Sigmoid())  #input_dim, self.input_dim
 
 
-        self.decoder = nn.Sequential(*modules)
+        self.decode = nn.Sequential(*modules)
 
 
 
-    def encode(self, D):
-        for l in self.layers[: int(len(self.layers) / 2)]:
-            # print(D.shape, l)
-            D = l(D)
-        return D
-
-    def decode(self, D):
-        for l in self.layers[int(len(self.layers) / 2) :]:
-            # print(D.shape, l)
-            D = l(D)
-        return D
+    # def encode(self, D):
+    #     for l in self.layers[: int(len(self.layers) / 2)]:
+    #         # print(D.shape, l)
+    #         D = l(D)
+    #     return D
+    #
+    # def decode(self, D):
+    #     for l in self.layers[int(len(self.layers) / 2) :]:
+    #         # print(D.shape, l)
+    #         D = l(D)
+    #     return D
 
     def forward(self, D):
         """
