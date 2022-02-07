@@ -9,7 +9,7 @@ from itertools import product
 
 class Dataset_Gravity(Dataset):
     def __init__(
-        self, dataset_meta_features, learning_curves, algorithms_meta_features
+            self, dataset_meta_features, learning_curves, algorithms_meta_features
     ):
         self.preprocess(
             dataset_meta_features, learning_curves, algorithms_meta_features
@@ -56,11 +56,11 @@ class Dataset_Gravity(Dataset):
         return D0, D1, A0, A1
 
     def preprocess(
-        self,
-        dataset_meta_features,
-        validation_learning_curves,
-        algorithms_meta_features,
-        k=0,
+            self,
+            dataset_meta_features,
+            validation_learning_curves,
+            algorithms_meta_features,
+            k=0,
     ):
         """
         (1) Dataset Meta Features are selected based on being variable and transformed to tensor + normalized
@@ -81,12 +81,7 @@ class Dataset_Gravity(Dataset):
             list(dataset_meta_features.values()), index=dataset_meta_features.keys()
         )
         string_typed_variables = [
-            "usage",
-            "name",
-            "task",
-            "target_type",
-            "feat_type",
-            "metric",
+            "usage", "name", "task", "target_type", "feat_type", "metric",
         ]
         other_columns = list(
             set(self.df_data_meta_features.columns) - set(string_typed_variables)
@@ -98,13 +93,15 @@ class Dataset_Gravity(Dataset):
         # min-max normalization of numeric features
         df = self.df_data_meta_features[other_columns]
         self.df_data_meta_features[other_columns] = (df - df.min()) / (
-            df.max() - df.min()
+                df.max() - df.min()
         )
         self.datasets_meta_features = torch.tensor(
             self.df_data_meta_features[other_columns].values, dtype=torch.float32
         )
 
-        # compute learning curve properties. -----------------------------------
+        # compute algorithm properties -----------------------------------------
+        # compute learning curve properties.
+
         # find the 90% quantile in performance
         # ---> learn how fast an algo given a dataset complexity will approx converge?
         curve_set = validation_learning_curves
@@ -127,15 +124,41 @@ class Dataset_Gravity(Dataset):
                     curve.convergence_share >= threshold
                 )
                 curve.convergence90_time = curve.timestamps[curve.convergence90_step]
+                curve.convergence90_performance = curve.scores[curve.convergence90_step]
 
+        # read out the time of convergence 90%
+        algo_convergences = dict()
+        algo_final_performances = dict()
+        algo_90_performance = dict()
+        for algo_id, curve_dict in self.algo_valid_learning_curves.items():
+            algo_convergences[algo_id] = pd.Series(
+                {k: curve.convergence90_time for k, curve in curve_dict.items()})
+            algo_final_performances[algo_id] = pd.Series(
+                {k: curve.final_performance for k, curve in curve_dict.items()})
+            algo_90_performance[algo_id] = pd.Series(
+                {k: curve.convergence90_performance for k, curve in curve_dict.items()})
+
+        # time at which the algo converged on the respective dataset
+        self.algo_convergences90 = pd.DataFrame(algo_convergences)
+        self.algo_convergences90.columns.name = 'Algorithms'
+        self.algo_convergences90.index.name = 'Dataset'
+
+        # how well did the algo perform on the respective dataset
+        self.algo_final_performances = pd.DataFrame(algo_final_performances)
+        self.algo_final_performances.columns.name = 'Algorithms'
+        self.algo_final_performances.index.name = 'Dataset'
+
+        # how was the performance at the timestamp that marks the at least 90% convergence
+        self.algo_90_performances = pd.DataFrame(algo_90_performance)
+        self.algo_90_performances.columns.name = 'Algorithms'
+        self.algo_90_performances.index.name = 'Dataset'
+
+        # compute dataset properties  ------------------------------------------
         class Datum:
             # placeholder object to keep track of aggregation properties (instead of
             # all of the dictionaries flying around.
             pass
 
-        # compute algorithm properties -----------------------------------------
-
-        # compute dataset properties  ------------------------------------------
         self.dataset_learning_properties = {
             d: Datum() for d in dataset_meta_features.keys()
         }
@@ -169,7 +192,7 @@ class Dataset_Gravity(Dataset):
             datum.convergence_avg = np.mean(datum.convergence_step)
 
             datum.topk_available_trials = (
-                float(datum.meta["time_budget"]) / datum.convergence_avg_topk
+                    float(datum.meta["time_budget"]) / datum.convergence_avg_topk
             )
 
         # # amount of time on the datasets to find out which algo works best:
