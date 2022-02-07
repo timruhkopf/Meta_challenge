@@ -116,27 +116,31 @@ class Agent_Gravitas:
         """
 
         # validation dataloader
-        valid_dataset = Dataset_Gravity(dataset_meta_features, validation_learning_curves, algorithms_meta_features)
+        self.valid_dataset = Dataset_Gravity(dataset_meta_features, validation_learning_curves,
+                                             algorithms_meta_features)
         # valid_dataset.__getitem__(0)
-        valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=9)
+        valid_dataloader = DataLoader(self.valid_dataset, shuffle=True, batch_size=9)
 
         # test_dataset = Dataset(self.dataset_meta_features, self.algo_valid_learning_curves,
         #                        self.dataset_learning_properties)
         # test_dataloader = DataLoader(test_dataset)
         test_dataloader = None  # FIXME: replace test_dataloader
 
-        # Training procedure
+        # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = Autoencoder(
-                    input_dim =10,
-                    latent_dim = 2,
-                    hidden_dims = [8,4,3],
-                    n_algos=20,
-                    device=device
-                )
+            input_dim=10,
+            latent_dim=2,
+            hidden_dims=[8, 4, 3],
+            n_algos=20,
+            device=device
+        )
 
-        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=100)
-        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=500)
+        print('Pretraining Autoencoder with reconstruction loss: ')
+        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=10)
+
+        print('Training Autoencoder with gravity loss:')
+        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=10)
 
         # cosines = cosine_similarity(valid_dataloader.dataset.algo_performances,
         #                           valid_dataloader.dataset.algo_performances)
@@ -145,7 +149,7 @@ class Agent_Gravitas:
         # df = pd.DataFrame((cosines - torch.eye(cosines.shape[0])).numpy())
         # plt.imshow(df, cmap='hot', interpolation='nearest')
         # plt.show()
-
+        # fixme: remove the below plotting method
         import matplotlib.pyplot as plt
 
         # plot pretrain loss at each epoch.
@@ -168,13 +172,34 @@ class Agent_Gravitas:
         plt.legend()
         plt.show()
 
-        # TODO meta learn convergence speed (on both valid_dataset & test_dataset?
-        # time at 90% convergence for each algorithm based on the complexity.
-        # quantile regression?- so that we can actually predict conditional on the
-        # data meta features (indicating e.g. complexity) when we can be 90% certain the
-        # data set will have converged? --> is there a way to exploit correlations? i.e. take the
-        # other algorithms performances into account for the complexity - inductive biases?
+        self.meta_train_convergence_speed(confidence=0.9)
 
+    def meta_train_convergence_speed(self, confidence=0.9):
+        """
+        Using Quantile Regression, find the time at which the algorithm is suspected (
+        with confidence (in %)) that the algorithm will have converged to 90% of
+        its final performance on the given dataset.
+        :param confidence: float: quantile of the 90% convergence distribution
+
+        :attributes:
+        :param qr_models: dict: {algo_id: QuantileRegression}
+        independent models for each individual algorithm's convergence90 time at the
+        confidence quantile.
+        """
+
+        # TODO: also use test dataset info for convergence speed learning
+        print('Training 90% convergence speed.')
+        X = self.valid_dataset.datasets_meta_features_df
+        Y = self.valid_dataset.algo_convergences90_time
+
+        # independent (algo-wise) quantile regression models
+        self.qr_models = {k: None for k in Y.columns}
+        for algo in Y.columns:
+            self.qr_models[algo] = QuantileRegressor(quantile=confidence, alpha=0)
+            self.qr_models[algo].fit(X, Y[algo])
+
+        # TODO exploit complexity information based on landmarking:
+        #  e.g. Linear mixed model Quantile regression
 
     @property
     def incumbent(self):
@@ -220,10 +245,10 @@ class Agent_Gravitas:
 
         # TODO find the conditional (on dataset based on complexity & on algo convergence speed)
         #  budget until reaching 90%.
+        for algo_id in self.valid_dataset.algo_learning_curves.keys():
+            self.qr_models[algo_id].predict() # <-- .reset() dataset_meta_features after preprocessing
 
         # TODO check whether or not the algo has surpassed at least 30 % yet
         # TODO: check when did the last new information arrive if we haven't reached yet the
         #  75% quantile of conditional expectation distribution; continue; else stop allocating
         #  budget to this algo and pick another one.
-
-        pass
