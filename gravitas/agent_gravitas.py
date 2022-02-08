@@ -4,15 +4,20 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from gravitas.autoencoder import Autoencoder
+import pdb
+
+from gravitas.autoencoder import AE
+from gravitas.base_encoder import BaseEncoder
+from gravitas.vae import VAE 
 from gravitas.dataset_gravitas import Dataset_Gravity
 
-
-# TODO seeding
-
+# TODO: seeding
 
 class Agent_Gravitas:
-    def __init__(self, number_of_algorithms):
+    def __init__(
+            self, 
+            number_of_algorithms,
+            encoder: BaseEncoder = VAE):
         """
         Initialize the agent
 
@@ -24,6 +29,7 @@ class Agent_Gravitas:
         """
         self.nA = number_of_algorithms
         self.times = [0.] * self.nA
+        self.encoder = encoder
 
     def reset(self, dataset_meta_features, algorithms_meta_features):
         """
@@ -74,7 +80,6 @@ class Agent_Gravitas:
          '19': {'meta_feature_0': '0', 'meta_feature_1': '1.0'},
          }
         """
-
 
         # preprocess the newly arriving dataset/algo features
         self.algorithms_meta_features = algorithms_meta_features
@@ -167,7 +172,7 @@ class Agent_Gravitas:
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = Autoencoder(
+        self.model = self.encoder(
             input_dim=10,
             latent_dim=2,
             hidden_dims=[8, 4, 3],

@@ -32,19 +32,15 @@ default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
 def vprint(mode, t):
     """
     Print to stdout, only if in verbose mode.
-
     Parameters
     ----------
     mode : bool
         True if the verbose mode is on, False otherwise.
-
     Examples
     --------
     >>> vprint(True, "hello world")
     hello world
-
     >>> vprint(False, "hello world")
-
     """
 
     if mode:
@@ -54,7 +50,6 @@ def vprint(mode, t):
 def clear_output_dir(output_dir):
     """
     Delete previous output files.
-
     Parameters
     ----------
     output_dir : str
@@ -73,14 +68,12 @@ def clear_output_dir(output_dir):
 def meta_training(agent, D_tr):
     """
     Meta-train an agent on a set of datasets.
-
     Parameters
     ----------
     agent : Agent
         The agent before meta-training.
     D_tr : list of str
         List of dataset indices used for meta-training
-
     Returns
     -------
     agent : Agent
@@ -126,7 +119,6 @@ def meta_training(agent, D_tr):
 def meta_testing(trained_agent, D_te):
     """
     Meta-test the trained agent on a set of datasets.
-
     Parameters
     ----------
     trained_agent : Agent

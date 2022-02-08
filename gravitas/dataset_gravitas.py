@@ -5,6 +5,9 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 class Dataset_Gravity(Dataset):
     def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features, no_competitors=11):
@@ -262,7 +265,7 @@ class Dataset_Gravity(Dataset):
         self.algo_performances = algo_performances
 
     def plot_learning_curves(self, dataset_id=9):
-        import matplotlib.pyplot as plt
+        
 
         for id, curve in self.raw_learning_curves[str(dataset_id)].items():
             plt.plot(curve.timestamps, curve.scores, marker='o', linestyle='dashed', label=id)
@@ -274,8 +277,6 @@ class Dataset_Gravity(Dataset):
         plt.show()
 
     def plot_convergence90_time(self, normalized=True):
-        import seaborn as sns
-        import matplotlib.pyplot as plt
 
         for dataset_id, dataset_curves in self.raw_learning_curves.items():
 
