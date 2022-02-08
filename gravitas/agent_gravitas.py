@@ -302,17 +302,17 @@ class Agent_Gravitas:
         """
         # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
 
-        # TODO keep track of spent budget & observed performances
-        A, C_A, R = observation
-        self.times[str(A)] += C_A
-        self.obs_performances[str(A)] = R
+        # keep track of spent budget & observed performances
+        if observation is not None: # initial observation is None
+            A, C_A, R = observation
+            self.times[str(A)] += C_A
+            self.obs_performances[str(A)] = R
 
-        # TODO find the conditional (on dataset based on complexity & on algo convergence speed)
-        #  budget until reaching 90%.
-        for algo_id in self.valid_dataset.algo_learning_curves.keys():
-            self.qr_models[algo_id].predict()  # todo <-- .reset() dataset_meta_features after preprocessing
+        trials = sum(1 if t!= 0 else 0 for t in self.times.values())
+        A = self.learned_rankings[trials]
+        A_star  = A # FIXME: what is the difference?
+        delta_t = self.budgets[trials]
 
-        # TODO check whether or not the algo has surpassed at least 30 % yet
-        # TODO: check when did the last new information arrive if we haven't reached yet the
-        #  75% quantile of conditional expectation distribution; continue; else stop allocating
-        #  budget to this algo and pick another one.
+        # TODO among the prime candidates try out those first, that need the least budget?
+        return A_star, A, delta_t
+
