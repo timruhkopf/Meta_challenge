@@ -13,7 +13,7 @@ class Agent_Gravitas:
     def __init__(
             self, 
             number_of_algorithms,
-            encoder: BaseEncoder = VAE, 
+            encoder: str = "VAE", 
             seed=123546):
         """
         Initialize the agent
@@ -177,7 +177,7 @@ class Agent_Gravitas:
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self.encoder(
+        self.model = eval(self.encoder)(
             input_dim=10,
             latent_dim=2,
             hidden_dims=[8, 4, 3],
@@ -185,11 +185,11 @@ class Agent_Gravitas:
             device=device
         )
 
-        print('\nPretraining Autoencoder with reconstruction loss: ')
+        print(f'\nPretraining {str(self.encoder)} with reconstruction loss: ')
         tracking_pre, losses_pre, test_losses_pre = self.model.pretrain(
             self.valid_dataloader, self.test_dataloader, epochs=pretrain_epochs)
 
-        print('\nTraining Autoencoder with gravity loss:')
+        print(f'\nTraining {str(self.encoder)} with gravity loss:')
         tracking, losses, test_losses = self.model.trainer(
             self.valid_dataloader, self.test_dataloader, epochs=epochs)
 
