@@ -171,10 +171,24 @@ class Dataset_Gravity(Dataset):
 
         # min-max normalization of numeric features
         df = datasets_meta_features_df
+
+        self.normalizations = df.min(), df.max()
         datasets_meta_features_df = (df - df.min()) / (df.max() - df.min())
+
         self.datasets_meta_features_df = datasets_meta_features_df
         self.datasets_meta_features = torch.tensor(
             self.datasets_meta_features_df.values, dtype=torch.float32)
+
+    @staticmethod
+    def _preprocess_dataset_properties_meta_testing(dataset_meta_features, normalizations):
+        df = pd.Series(dataset_meta_features).to_frame().T
+        df = df[['train_num', 'target_num', 'has_categorical', 'valid_num', 'feat_num',
+                 'time_budget', 'label_num', 'is_sparse', 'has_missing', 'test_num']]
+        df = df.astype(float)
+        minimum, maximum = normalizations
+        df = (df - minimum) / (maximum - minimum)
+
+        return df, torch.tensor(df.values, dtype=torch.float32)
 
     def _preprocess_dataset_properties(self, learning_curves, dataset_meta_features):
         """

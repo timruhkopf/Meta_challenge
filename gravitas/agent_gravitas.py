@@ -74,16 +74,34 @@ class Agent_Gravitas:
          '19': {'meta_feature_0': '0', 'meta_feature_1': '1.0'},
          }
         """
+
+
+        # preprocess the newly arriving dataset/algo features
+        self.algorithms_meta_features = algorithms_meta_features
+        dataset_meta_features_df_testing, dataset_meta_feature_tensor_testing = \
+            Dataset_Gravity._preprocess_dataset_properties_meta_testing(
+            dataset_meta_features, self.valid_dataset.normalizations)
+
+        dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
+
+        # actual resetting
         self.times = {k: 0. for k in algorithms_meta_features.keys()}
         self.obs_performances = {k: 0. for k in algorithms_meta_features.keys()}
+
+        # set delta_t's (i.e. budgets for each algo we'd like to inquire)
+        self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
+
+        # predict the ranking of algorithms for this dataset
+        self.learned_rankings = self.model.predict_algorithms(
+            dataset_meta_feature_tensor_testing, topk=20)[0].tolist()
 
     def meta_train(self,
                    dataset_meta_features,
                    algorithms_meta_features,
                    validation_learning_curves,
                    test_learning_curves,
-                   epochs=1000,
-                   pretrain_epochs=500,
+                   epochs=100,
+                   pretrain_epochs=100,
                    batch_size=9):
         """
         Start meta-training the agent with the validation and test learning curves
@@ -124,7 +142,7 @@ class Agent_Gravitas:
             dataset_meta_features,
             validation_learning_curves,
             algorithms_meta_features)
-        valid_dataloader = DataLoader(
+        self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
             batch_size=batch_size)
@@ -133,7 +151,7 @@ class Agent_Gravitas:
             dataset_meta_features,
             test_learning_curves,
             algorithms_meta_features)
-        test_dataloader = DataLoader(
+        self.test_dataloader = DataLoader(
             self.test_dataset,
             shuffle=True,
             batch_size=batch_size)
@@ -159,12 +177,13 @@ class Agent_Gravitas:
 
         print('\nPretraining Autoencoder with reconstruction loss: ')
         tracking_pre, losses_pre, test_losses_pre = self.model.pretrain(
-            valid_dataloader, test_dataloader, epochs=pretrain_epochs)
+            self.valid_dataloader, self.test_dataloader, epochs=pretrain_epochs)
 
         print('\nTraining Autoencoder with gravity loss:')
-        tracking, losses, test_losses = self.model.train(
-            valid_dataloader, test_dataloader, epochs=epochs)
+        tracking, losses, test_losses = self.model.trainer(
+            self.valid_dataloader, self.test_dataloader, epochs=epochs)
 
+        self.plot_encoder_training(losses, losses_pre)
 
     def plot_encoder_training(self, losses, losses_pre):
         # fixme: remove the below plotting method
@@ -178,14 +197,15 @@ class Agent_Gravitas:
         # len(tracking_pre)
         # len(losses_pre)
 
-        # pllt the dataset-algo embeddings 2D
+        # plot the dataset-algo embeddings 2D
         D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
         d_test = self.model.encode(D_test)
         d_test = d_test.cpu().detach().numpy()
 
         z_algo = self.model.Z_algo.cpu().detach().numpy()
         d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
-        z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
+        # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
+        z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0) # normalization based on datasets
 
         plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
         plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
@@ -216,8 +236,34 @@ class Agent_Gravitas:
             self.qr_models[algo] = QuantileRegressor(quantile=confidence, alpha=0)
             self.qr_models[algo].fit(X, Y[algo])
 
-        # TODO exploit complexity information based on landmarking:
-        #  e.g. Linear mixed model Quantile regression
+        # FIXME: remove the below validation of QR procedure
+        # dataset_id = 9
+        # predictions = {k: None for k in Y.columns}
+        # for algo in Y.columns:
+        #     predictions[algo] = self.qr_models[algo].predict(X)
+        #
+        # predictions = pd.DataFrame(predictions, index=X.index, columns=Y.columns)
+        #
+        # import matplotlib.pyplot as plt
+        # plt.scatter(x=predictions.loc[dataset_id], y=[0.] * len(Y.columns))
+        # self.valid_dataset.plot_learning_curves(str(dataset_id))
+
+        # Consider exploit complexity information based on landmarking:
+        #  e.g. Linear mixed model Quantile regression with
+
+        # todo  use embedding as additional feature
+
+    def predict_convergence_speed(self, df):
+        """Predict the 90% convergence time budget we would like to allocate for each algorithm
+        requires meta_train_convergence_speed"""
+        if not hasattr(self, 'qr_models'):
+            raise ValueError('meta_train_convergence_speed must be executed beforehand')
+
+        prediction_convergence_speed = {}
+        for algo in range(self.nA):
+            prediction_convergence_speed[algo] = self.qr_models[algo].predict(df)
+
+        return prediction_convergence_speed
 
     @property
     def incumbent(self):

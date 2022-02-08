@@ -214,7 +214,7 @@ class Autoencoder(nn.Module):
             torch.nn.functional.mse_loss(D0, D0_fwd)
         return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
 
-    def train(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+    def trainer(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         # TODO check convergence: look if neither Z_algo nor Z_data move anymore!
         return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr)
 
@@ -292,13 +292,18 @@ class Autoencoder(nn.Module):
         distance in embedding space.
         """
         # embed dataset.
-        Z_data = self.encode(D)
+        self.eval()
 
-        # find k-nearest algorithms.
-        # sort by distance in embedding space.
-        dist_mat = torch.cdist(Z_data, self.Z_algo)
-        top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
+        with torch.no_grad():
 
+            Z_data = self.encode(D)
+
+            # find k-nearest algorithms.
+            # sort by distance in embedding space.
+            dist_mat = torch.cdist(Z_data, self.Z_algo)
+            _, top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
+
+        self.train()
         return top_algo
 
 
