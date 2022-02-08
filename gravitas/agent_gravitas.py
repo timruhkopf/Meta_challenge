@@ -7,7 +7,7 @@ from gravitas.base_encoder import BaseEncoder
 from gravitas.vae import VAE 
 from gravitas.dataset_gravitas import Dataset_Gravity
 
-# TODO: seeding
+# TODO: Validate the rudimentary impact of seeidng on the environment  
 
 class Agent_Gravitas:
     def __init__(
@@ -200,10 +200,13 @@ class Agent_Gravitas:
         import matplotlib.pyplot as plt
 
         # plot pretrain loss at each epoch.
+        plt.figure()
         plt.plot(torch.tensor(losses).numpy(), label="gravity")
         plt.plot(torch.tensor(losses_pre).numpy(), label="pre")
         plt.legend()
-        plt.show()
+        plt.savefig(
+            f'output/{self.encoder}_training_loss.png',
+        )
         # len(tracking_pre)
         # len(losses_pre)
 
@@ -217,10 +220,13 @@ class Agent_Gravitas:
         # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
         z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0) # normalization based on datasets
 
+        plt.figure()
         plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
         plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
         plt.legend()
-        plt.show()
+        plt.savefig(
+            f'output/{self.encoder}_training_reps.png',
+        )
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
