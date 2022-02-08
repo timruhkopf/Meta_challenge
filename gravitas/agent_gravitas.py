@@ -80,7 +80,9 @@ class Agent_Gravitas:
                    algorithms_meta_features,
                    validation_learning_curves,
                    test_learning_curves,
-                   epochs=1000):
+                   epochs=1000,
+                   pretrain_epochs=500,
+                   batch_size=9):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -116,19 +118,36 @@ class Agent_Gravitas:
         """
 
         # validation dataloader
-        self.valid_dataset = Dataset_Gravity(dataset_meta_features, validation_learning_curves,
-                                             algorithms_meta_features)
-        # valid_dataset.__getitem__(0)
-        valid_dataloader = DataLoader(self.valid_dataset, shuffle=True, batch_size=9)
+        self.valid_dataset = Dataset_Gravity(
+            dataset_meta_features,
+            validation_learning_curves,
+            algorithms_meta_features)
+        valid_dataloader = DataLoader(
+            self.valid_dataset,
+            shuffle=True,
+            batch_size=batch_size)
 
-        # test_dataset = Dataset(self.dataset_meta_features, self.algo_valid_learning_curves,
-        #                        self.dataset_learning_properties)
-        # test_dataloader = DataLoader(test_dataset)
-        test_dataloader = None  # FIXME: replace test_dataloader
+        self.test_dataset = Dataset_Gravity(
+            dataset_meta_features,
+            test_learning_curves,
+            algorithms_meta_features)
+        test_dataloader = DataLoader(
+            self.test_dataset,
+            shuffle=True,
+            batch_size=batch_size)
+
+        # TODO: disable: some data exploration
+        # self.test_dataset.plot_convergence90_time()
+        #
+        # for d in dataset_meta_features.keys():
+        #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
+
+        # meta_learn convergence speed
+        self.meta_train_convergence_speed(confidence=0.9)
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = Autoencoder(
+        self.model = Autoencoder(
             input_dim=10,
             latent_dim=2,
             hidden_dims=[8, 4, 3],
@@ -136,19 +155,16 @@ class Agent_Gravitas:
             device=device
         )
 
-        print('Pretraining Autoencoder with reconstruction loss: ')
-        tracking_pre, losses_pre, test_losses_pre = model.pretrain(valid_dataloader, test_dataloader, epochs=10)
+        print('\nPretraining Autoencoder with reconstruction loss: ')
+        tracking_pre, losses_pre, test_losses_pre = self.model.pretrain(
+            valid_dataloader, test_dataloader, epochs=pretrain_epochs)
 
-        print('Training Autoencoder with gravity loss:')
-        tracking, losses, test_losses = model.train(valid_dataloader, test_dataloader, epochs=10)
+        print('\nTraining Autoencoder with gravity loss:')
+        tracking, losses, test_losses = self.model.train(
+            valid_dataloader, test_dataloader, epochs=epochs)
 
-        # cosines = cosine_similarity(valid_dataloader.dataset.algo_performances,
-        #                           valid_dataloader.dataset.algo_performances)
-        # torch.var_mean(cosines-torch.eye(cosines.shape[0]), dim=0)
-        # import pandas as pd
-        # df = pd.DataFrame((cosines - torch.eye(cosines.shape[0])).numpy())
-        # plt.imshow(df, cmap='hot', interpolation='nearest')
-        # plt.show()
+
+    def plot_encoder_training(self, losses, losses_pre):
         # fixme: remove the below plotting method
         import matplotlib.pyplot as plt
 
@@ -157,13 +173,15 @@ class Agent_Gravitas:
         plt.plot(torch.tensor(losses_pre).numpy(), label="pre")
         plt.legend()
         plt.show()
-        len(tracking_pre)
-        len(losses_pre)
-        D_test = valid_dataloader.dataset.datasets_meta_features.data.to(device)
-        d_test = model.encode(D_test)
+        # len(tracking_pre)
+        # len(losses_pre)
+
+        # pllt the dataset-algo embeddings 2D
+        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
+        d_test = self.model.encode(D_test)
         d_test = d_test.cpu().detach().numpy()
 
-        z_algo = model.Z_algo.cpu().detach().numpy()
+        z_algo = self.model.Z_algo.cpu().detach().numpy()
         d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
         z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
 
@@ -171,8 +189,6 @@ class Agent_Gravitas:
         plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
         plt.legend()
         plt.show()
-
-        self.meta_train_convergence_speed(confidence=0.9)
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
@@ -246,7 +262,7 @@ class Agent_Gravitas:
         # TODO find the conditional (on dataset based on complexity & on algo convergence speed)
         #  budget until reaching 90%.
         for algo_id in self.valid_dataset.algo_learning_curves.keys():
-            self.qr_models[algo_id].predict() # <-- .reset() dataset_meta_features after preprocessing
+            self.qr_models[algo_id].predict()  # todo <-- .reset() dataset_meta_features after preprocessing
 
         # TODO check whether or not the algo has surpassed at least 30 % yet
         # TODO: check when did the last new information arrive if we haven't reached yet the
