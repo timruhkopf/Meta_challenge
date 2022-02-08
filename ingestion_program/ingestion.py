@@ -1,21 +1,28 @@
 import os
+import sys
 from sys import argv, path
-from ingestion_program.environment import Meta_Learning_Environment
 import random
 import os
 from sklearn.model_selection import KFold
-import time
-import datetime
 import shutil
+import pdb
+import inspect
+
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0, parentdir)
+
+
+from ingestion_program import Meta_Learning_Environment
 
 # === Verbose mode
 verbose = True
 
-# === Set RANDOM SEED
+# === Set RANDOM SEED : TODO see how this translates to the whole pipeline
 random.seed(208)
 
 # === Setup input/output directories
-root_dir = "/home/ruhkopf/PycharmProjects/Meta_challenge/"  # os.getcwd()
+root_dir = os.getcwd()
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
