@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from itertools import product
 
 
 class Dataset_Gravity(Dataset):
@@ -19,6 +18,10 @@ class Dataset_Gravity(Dataset):
         """
         self.no_competitors = no_competitors
         self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
+
+        # needed for plotting
+        self.raw_learning_curves = learning_curves
+        self.raw_dataset_meta_features = dataset_meta_features
 
     def __len__(self):
         return len(self.datasets_meta_features)
@@ -243,3 +246,41 @@ class Dataset_Gravity(Dataset):
             row[i_row] = 0
 
         self.algo_performances = algo_performances
+
+    def plot_learning_curves(self, dataset_id=9):
+        import matplotlib.pyplot as plt
+
+        for id, curve in self.raw_learning_curves[str(dataset_id)].items():
+            plt.plot(curve.timestamps, curve.scores, marker='o', linestyle='dashed', label=id)
+
+        plt.title('Dataset {}'.format(dataset_id))
+        plt.xlabel('Time')
+        plt.ylabel('Performance')
+        plt.legend(loc='upper right')
+        plt.show()
+
+    def plot_convergence90_time(self, normalized=True):
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+
+        for dataset_id, dataset_curves in self.raw_learning_curves.items():
+
+            if normalized:
+                # fixme: apparently time budget can be smaller than timestamp
+                # unconditional_90time = [
+                #     curve.convergence90_time / int(self.raw_dataset_meta_features[str(dataset_id)]['time_budget'])
+                #     for curve in dataset_curves.values()]
+
+                unconditional_90time = [
+                    curve.convergence90_time / curve.timestamps[-1]
+                    for curve in dataset_curves.values()]
+                title = 'Unconditional Time Budget until 90% Convergence\n' \
+                        'normalized by available budget'
+            else:
+                unconditional_90time = [curve.convergence90_time for curve in dataset_curves.values()]
+                title = 'Unconditional Time Budget until 90% Convergence'
+            sns.kdeplot(unconditional_90time, label=dataset_id)
+
+        plt.title(title)
+        plt.legend(loc='upper right')
+        plt.show()
