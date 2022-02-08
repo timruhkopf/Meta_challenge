@@ -293,8 +293,5 @@ class VAE(BaseEncoder):
 
         self.train()
 
-        print(f"top algorithm: {type(top_algo)}")
-        pdb.set_trace()
-
         return top_algo
 

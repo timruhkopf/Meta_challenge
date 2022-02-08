@@ -10,7 +10,14 @@ import seaborn as sns
 
 
 class Dataset_Gravity(Dataset):
-    def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features, no_competitors=11):
+    def __init__(
+            self, 
+            dataset_meta_features, 
+            learning_curves, 
+            algorithms_meta_features, 
+            no_competitors=11, 
+            seed=123456
+        ):
         """
 
         :param dataset_meta_features:
@@ -25,6 +32,8 @@ class Dataset_Gravity(Dataset):
         # needed for plotting
         self.raw_learning_curves = learning_curves
         self.raw_dataset_meta_features = dataset_meta_features
+        random.seed(seed)
+        np.random.seed(seed)
 
     def __len__(self):
         return len(self.datasets_meta_features)
@@ -84,12 +93,6 @@ class Dataset_Gravity(Dataset):
         self._preporcess_scalar_properties(self.algo_learning_curves)
         self._preprocess_dataset_properties(learning_curves, dataset_meta_features)
         self._preprocess_thresholded_algo_performances(k=10)
-        # # amount of time on the datasets to find out which algo works best:
-        # plt.hist(self.df_data_meta_features['time_budget'])
-        # plt.show()
-        #
-        # plt.hist([datum.topk_available_trials for datum in self.dataset_learning_properties.values()])
-        # plt.show()
 
     def _preprocess_learning_curves(self, algorithms_meta_features, learning_curves):
         """Enrich the learning curve objects with properties computed on the learning curve

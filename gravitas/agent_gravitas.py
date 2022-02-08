@@ -1,10 +1,6 @@
 from sklearn.linear_model import QuantileRegressor
-import pandas as pd
-
 import torch
 from torch.utils.data import DataLoader
-
-import pdb
 
 from gravitas.autoencoder import AE
 from gravitas.base_encoder import BaseEncoder
@@ -17,7 +13,8 @@ class Agent_Gravitas:
     def __init__(
             self, 
             number_of_algorithms,
-            encoder: BaseEncoder = VAE):
+            encoder: BaseEncoder = VAE, 
+            seed=123546):
         """
         Initialize the agent
 
@@ -30,6 +27,11 @@ class Agent_Gravitas:
         self.nA = number_of_algorithms
         self.times = [0.] * self.nA
         self.encoder = encoder
+        self.seed = seed
+
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        
 
     def reset(self, dataset_meta_features, algorithms_meta_features):
         """
@@ -150,12 +152,15 @@ class Agent_Gravitas:
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
-            batch_size=batch_size)
+            batch_size=batch_size
+            )
 
         self.test_dataset = Dataset_Gravity(
             dataset_meta_features,
             test_learning_curves,
-            algorithms_meta_features)
+            algorithms_meta_features
+        )
+
         self.test_dataloader = DataLoader(
             self.test_dataset,
             shuffle=True,

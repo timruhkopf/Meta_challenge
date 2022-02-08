@@ -18,8 +18,11 @@ from ingestion_program import Meta_Learning_Environment
 # === Verbose mode
 verbose = True
 
+# === seeding
+seed = 123456
+
 # === Set RANDOM SEED : TODO see how this translates to the whole pipeline
-random.seed(208)
+random.seed(seed)
 
 # === Setup input/output directories
 root_dir = os.getcwd()
@@ -252,7 +255,10 @@ if __name__ == "__main__":
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 
         # Init a new agent instance in each iteration
-        agent = Agent(number_of_algorithms=len(list_algorithms))
+        agent = Agent(
+                number_of_algorithms=len(list_algorithms),
+                seed= seed
+                )
 
         # === META-TRAINING
         trained_agent = meta_training(agent, D_tr)
