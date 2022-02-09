@@ -74,10 +74,10 @@ class VAE(BaseEncoder):
         self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.latent_dim)
         self.fc_var = torch.nn.Linear(hidden_dims[-1], self.latent_dim)
 
-        modules.append(nn.Linear(input_dim, self.latent_dim))
-        modules.append(nn.BatchNorm1d(self.latent_dim))
-        modules.append(nn.Dropout(p=0.5))
-        modules.append(nn.ReLU())
+        # modules.append(nn.Linear(input_dim, self.latent_dim))
+        # modules.append(nn.BatchNorm1d(self.latent_dim))
+        # modules.append(nn.Dropout(p=0.5))
+        # modules.append(nn.ReLU())
 
         
 
@@ -95,7 +95,7 @@ class VAE(BaseEncoder):
             input_dim = h_dim
 
         modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())  #input_dim, self.input_dim
+        modules.append(nn.Sigmoid()) 
 
 
         self.decoder = nn.Sequential(*modules)
@@ -121,6 +121,10 @@ class VAE(BaseEncoder):
         # Get the mean and standard deviation from the output 
         mu = self.fc_mu(result)
         log_var = self.fc_var(result)
+
+        # TODO: Plot latent distributions
+
+
 
         # Sample a latent vector using the reparameterization trick
         z = self.reparameterize(mu, log_var)
