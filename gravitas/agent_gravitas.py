@@ -75,12 +75,11 @@ class Agent_Gravitas:
          }
         """
 
-
         # preprocess the newly arriving dataset/algo features
         self.algorithms_meta_features = algorithms_meta_features
         dataset_meta_features_df_testing, dataset_meta_feature_tensor_testing = \
             Dataset_Gravity._preprocess_dataset_properties_meta_testing(
-            dataset_meta_features, self.valid_dataset.normalizations)
+                dataset_meta_features, self.valid_dataset.normalizations)
 
         dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
 
@@ -205,7 +204,7 @@ class Agent_Gravitas:
         z_algo = self.model.Z_algo.cpu().detach().numpy()
         d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
         # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
-        z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0) # normalization based on datasets
+        z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0)  # normalization based on datasets
 
         plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
         plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
@@ -303,16 +302,15 @@ class Agent_Gravitas:
         # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
 
         # keep track of spent budget & observed performances
-        if observation is not None: # initial observation is None
+        if observation is not None:  # initial observation is None
             A, C_A, R = observation
             self.times[str(A)] += C_A
             self.obs_performances[str(A)] = R
 
-        trials = sum(1 if t!= 0 else 0 for t in self.times.values())
+        trials = sum(1 if t != 0 else 0 for t in self.times.values())
         A = self.learned_rankings[trials]
-        A_star  = A # FIXME: what is the difference?
+        A_star = A  # FIXME: what is the difference?
         delta_t = self.budgets[trials]
 
         # TODO among the prime candidates try out those first, that need the least budget?
         return A_star, A, delta_t
-
