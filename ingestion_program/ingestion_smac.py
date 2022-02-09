@@ -178,7 +178,7 @@ def meta_testing(trained_agent, D_te):
 if __name__ == "__main__":
     # === Get input and output directories
     if (
-        len(argv) == 1
+            len(argv) == 1
     ):  # Use the default input and output directories if no arguments are provided
         input_dir = default_input_dir
         output_dir = default_output_dir
@@ -234,39 +234,120 @@ if __name__ == "__main__":
     # === Clear old output
     clear_output_dir(output_dir)
 
-    # === Init K-folds cross-validation
-    kf = KFold(n_splits=6, shuffle=False)
+    # TODO SMAC HPO the Agent's meta training Autoencoder --------------------------------------------------------------
+    #  !! make Meta_training dependent on the hyperparameters !!
+    #  set up hyperband with multiple epoch-fidelities
+    import logging
 
-    ################## MAIN LOOP ##################
-    # === Init a meta-learning environment
-    env = Meta_Learning_Environment(
-        validation_data_dir,
-        test_data_dir,
-        meta_features_dir,
-        algorithms_meta_features_dir,
-        output_dir,
-    )
+    logging.basicConfig(level=logging.INFO)
+    import numpy as np
+    import torch
+    from sklearn.metrics import ndcg_score, label_ranking_loss
+    from gravitas.dataset_gravitas import Dataset_Gravity
+    import ConfigSpace as CS
+    from ConfigSpace.hyperparameters import \
+        CategoricalHyperparameter, UniformFloatHyperparameter, UniformIntegerHyperparameter
 
-    # === Start iterating, each iteration involves a meta-training step and a meta-testing step
-    iteration = 0
-    for D_tr, D_te in kf.split(list_datasets):
-        vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
+    from smac.configspace import ConfigurationSpace
+    from smac.facade.smac_mf_facade import SMAC4MF
+    from smac.scenario.scenario import Scenario
 
-        # Init a new agent instance in each iteration
-        agent = Agent(number_of_algorithms=len(list_algorithms))
+    # (0) ConfigSpace ----------------------------------------------------------
+    cs = ConfigurationSpace()
+    n_compettitors = UniformIntegerHyperparameter('n_compettitors', 1, 19, default_value=10)
+    embedding_dim = UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3)
+    repellent_threshold = UniformFloatHyperparameter('repellent_threshold', 0., .8, default_value=0.33)
+    lossweight1 = UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.)
+    lossweight2 = UniformFloatHyperparameter('lossweight2', 0., 10., default_value=1.)
+    lossweight3 = UniformFloatHyperparameter('lossweight3', 0., 10., default_value=1.)
+    lossweight4 = UniformFloatHyperparameter('lossweight4', 0., 10., default_value=1.)
+    learning_rate_init = UniformFloatHyperparameter(
+        'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True)
 
-        # === META-TRAINING
-        trained_agent = meta_training(agent, D_tr)
+    # Add all hyperparameters at once:
+    cs.add_hyperparameters(
+        [n_compettitors, embedding_dim, repellent_threshold, lossweight1,
+         lossweight2, lossweight3, lossweight4, learning_rate_init])
 
-        # === META-TESTING
-        meta_testing(trained_agent, D_te)
 
-        iteration += 1
-        # break
-    ################################################
+    # (1) TAE ------------------------------------------------------------------
+    # TODO make TAE config dependent
+    def tae(cfg):
+        # === Init K-folds cross-validation
+        kf = KFold(n_splits=6, shuffle=False)
 
-# === For debug only
-# tmp = os.listdir(os.path.join(root_dir, 'program'))
-# # tmp2 = os.listdir(root_dir)
-# tmp = ' '.join([str(item) for item in tmp])
-# tmp_3 = os.listdir(tmp)
+        ################## MAIN LOOP ##################
+        # === Init a meta-learning environment
+        env = Meta_Learning_Environment(
+            validation_data_dir,
+            test_data_dir,
+            meta_features_dir,
+            algorithms_meta_features_dir,
+            output_dir,
+        )
+
+        # === Start iterating, each iteration involves a meta-training step and a meta-testing step
+        iteration = 0
+        holdout_losses_ndcg = []
+        holdout_losses_ranking = []
+        for D_tr, D_te in kf.split(list_datasets):
+            vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
+
+            # Init a new agent instance in each iteration
+            agent = Agent(number_of_algorithms=len(list_algorithms))
+
+            # META-TRAINING-----------
+            trained_agent = meta_training(agent, D_tr)
+
+            # precompute ground trugh labels:
+            # get ground truth label
+            meta_test_dataset = [list_datasets[d] for d in D_te]
+            meta_features = {k: env.meta_features[k] for k in meta_test_dataset}
+            learning_curves = {k: env.test_learning_curves[k] for k in meta_test_dataset}
+            meta_test_dataset = Dataset_Gravity(meta_features, learning_curves, env.algorithms_meta_features)
+
+            ground_truth_rankings = np.argsort(meta_test_dataset.algo_final_performances, axis=1)
+
+            # META-TESTING-------------
+            # meta_testing(trained_agent, D_te)  # <<<--- intercepting the results on the heldout fold
+            holdout_rankings = []
+            holdout_rankings_truth = []
+            holdout_embedding_distances = []  # distances of algorithms to the dataset. (base for ranking vector)
+            for d_te in D_te:
+                dataset_name = list_datasets[d_te]
+                meta_features = env.meta_features[dataset_name]
+
+                # === Reset both the environment and the trained_agent for a new task
+                dataset_meta_features, algorithms_meta_features = env.reset(dataset_name=dataset_name)
+                # agent.reset will already trigger a prediction on the new dataset
+                trained_agent.reset(dataset_meta_features, algorithms_meta_features)
+                holdout_rankings.append(trained_agent.learned_rankings)
+                holdout_rankings_truth.append(ground_truth_rankings.loc[int(dataset_name), :])
+
+                # get the embedding distances (score for ndcg loss)
+                d_new = meta_test_dataset.datasets_meta_features[d_te].reshape(1, -1)
+                d_new = d_new.to(agent.model.device)
+                agent.model.eval()
+                # fixme: encoding seems not to work
+                Z_data = agent.model.encode(d_new)
+                dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
+
+            holdout_rankings_truth = np.array(holdout_rankings)
+
+            # compute the fold's loss
+            # Fixme: choose a K?? NDCG@K loss!
+            holdout_losses_ndcg.append(
+                ndcg_score(holdout_rankings_truth, dist_mat.numpy(),
+                           k=None, sample_weight=None, ignore_ties=False))
+
+            holdout_losses_ranking.append(
+                label_ranking_loss(holdout_rankings_truth, trained_agent.learned_rankings))
+
+            iteration += 1
+
+        # average across holdout_scores
+        return 1 - (sum(holdout_losses_ndcg) / (len(D_te) * 6))  # no_splits=6
+
+    # (2) Set up SMAC-MF with budget schedual
+    tae(None)
+    # (3) run & analyse the performances.

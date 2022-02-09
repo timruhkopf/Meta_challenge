@@ -182,7 +182,7 @@ class Agent_Gravitas:
         tracking, losses, test_losses = self.model.trainer(
             self.valid_dataloader, self.test_dataloader, epochs=epochs)
 
-        self.plot_encoder_training(losses, losses_pre)
+        # self.plot_encoder_training(losses, losses_pre)
 
     def plot_encoder_training(self, losses, losses_pre):
         # fixme: remove the below plotting method
