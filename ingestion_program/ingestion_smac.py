@@ -63,7 +63,7 @@ def clear_output_dir(output_dir):
     os.system("find . -name '.DS_Store' -type f -delete")
 
 
-def meta_training(agent, D_tr, env):
+def meta_training(agent, D_tr, env, encoder_config, epochs):
     """
     Meta-train an agent on a set of datasets.
 
@@ -93,9 +93,7 @@ def meta_training(agent, D_tr, env):
     for d_tr in D_tr:
         dataset_name = list_datasets[d_tr]
         datasets_meta_features[dataset_name] = env.meta_features[dataset_name]
-        validation_learning_curves[dataset_name] = env.validation_learning_curves[
-            dataset_name
-        ]
+        validation_learning_curves[dataset_name] = env.validation_learning_curves[dataset_name]
         test_learning_curves[dataset_name] = env.test_learning_curves[dataset_name]
 
     # === Get algorithms_meta_features of algorithms
@@ -109,6 +107,8 @@ def meta_training(agent, D_tr, env):
         algorithms_meta_features,
         validation_learning_curves,
         test_learning_curves,
+        epochs=epochs,
+        **encoder_config
     )
 
     vprint(verbose, "[+]Finished META-TRAINING phase")
@@ -255,7 +255,7 @@ if __name__ == "__main__":
     cs.add_hyperparameters(
         [UniformIntegerHyperparameter('n_compettitors', 1, 19, default_value=10),
          UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3),
-         UniformFloatHyperparameter('repellent_threshold', 0., .8, default_value=0.33),
+         UniformFloatHyperparameter('repellent_share', 0., .8, default_value=0.33),
          UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.),
          UniformFloatHyperparameter('lossweight2', 0., 10., default_value=1.),
          UniformFloatHyperparameter('lossweight3', 0., 10., default_value=1.),
@@ -263,36 +263,46 @@ if __name__ == "__main__":
          UniformFloatHyperparameter(
              'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True)])
 
+    # make split available to all TAE instantiations (calls)
+    kf = KFold(n_splits=3, shuffle=False)
+
+    # === Init a meta-learning environment
+    env = Meta_Learning_Environment(
+        validation_data_dir,
+        test_data_dir,
+        meta_features_dir,
+        algorithms_meta_features_dir,
+        output_dir,
+    )
+
 
     # (1) TAE ------------------------------------------------------------------
-    def tae(cfg, budget):
-        """Gravity Autoencoder loss NDCG (@K) loss"""
-        # === Init K-folds cross-validation
-        kf = KFold(n_splits=6, shuffle=False)
+    def tae(config, budget):
+        """Gravity Autoencoder loss NDCG (@K) averaged over k folds"""
+        budget = int(budget)
 
-        # FIXME: Enviroment needs to be available to Meta_training & testing functions!
-        # === Init a meta-learning environment
-        env = Meta_Learning_Environment(
-            validation_data_dir,
-            test_data_dir,
-            meta_features_dir,
-            algorithms_meta_features_dir,
-            output_dir,
-        )
+        # parse the config
+        weights = [config['lossweight' + str(w)] for w in range(1, 5)]
+        config = {**config}
+        config['weights'] = weights
+        for w in range(1, 5):
+            config.pop('lossweight' + str(w))
+
+        config['lr'] = config.pop('learning_rate_init')
 
         # === Start iterating, each iteration involves a meta-training step and a meta-testing step
         iteration = 0
         holdout_losses_ndcg = []
         holdout_losses_ranking = []
+        # learned_rankings = []
         for D_tr, D_te in kf.split(list_datasets):
-            vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
+            vprint(verbose, "\n********** Fold " + str(iteration) + " **********")
 
             # Init a new agent instance in each iteration
             agent = Agent(number_of_algorithms=len(list_algorithms))
 
             # META-TRAINING-----------
-            # TODO make TAE config dependent
-            trained_agent = meta_training(agent, D_tr, env)
+            trained_agent = meta_training(agent, D_tr, env, encoder_config=config, epochs=budget)
 
             # precompute ground trugh labels:
             # get ground truth label
@@ -320,50 +330,53 @@ if __name__ == "__main__":
                 holdout_rankings_truth.append(ground_truth_rankings.loc[int(dataset_name), :])
 
                 # get the embedding distances (score for ndcg loss)
-                d_new = meta_test_dataset.datasets_meta_features[d_te].reshape(1, -1)
+                d_index = meta_test_dataset.datasets_meta_features_df.index.tolist().index(int(dataset_name))
+                d_new = meta_test_dataset.datasets_meta_features[d_index].reshape(1, -1)
                 d_new = d_new.to(agent.model.device)
                 agent.model.eval()
                 Z_data = agent.model.encode(d_new)
                 dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
+                holdout_embedding_distances.append(torch.topk(dist_mat, largest=False, k=20)[1][0])
 
             holdout_rankings_truth = np.array(holdout_rankings)
+            holdout_embedding_distances = torch.stack(holdout_embedding_distances)
+
+
 
             # compute the fold's loss
             # Fixme: choose a K?? NDCG@K loss!
-            holdout_losses_ndcg.append(
-                ndcg_score(holdout_rankings_truth, dist_mat.numpy(),
-                           k=None, sample_weight=None, ignore_ties=False))
+            with torch.no_grad():
+                holdout_embedding_distances = holdout_embedding_distances.cpu()
 
-            holdout_losses_ranking.append(
-                label_ranking_loss(holdout_rankings_truth, trained_agent.learned_rankings))
+                holdout_losses_ndcg.append(
+                    ndcg_score(holdout_rankings_truth, holdout_embedding_distances.numpy(),
+                               k=None, sample_weight=None, ignore_ties=False))
+
+            # todo ranking loss: requires to collect the learned rankings per dataset_new
+            # holdout_losses_ranking.append(
+            #     label_ranking_loss(holdout_rankings_truth, trained_agent.learned_rankings))
 
             iteration += 1
-
+        print()
         # average across holdout_scores
-        return 1 - (sum(holdout_losses_ndcg) / (len(D_te) * 6))  # no_splits=6
+        return 1 - (sum(holdout_losses_ndcg) / len(holdout_losses_ndcg))  # no_splits=6
 
 
-    # (2) Set up SMAC-MF with budget schedual
-    tae(None)
-
-    # (3) run & analyse the performances.
+    # (2) Set up SMAC-MF with budget schedual ----------------------------------
     scenario = Scenario({
         'run_obj': 'quality',  # we optimize quality (alternative to runtime)
         'wallclock-limit': 3600,  # max duration to run the optimization (in seconds)
         'cs': cs,  # configuration space
         'deterministic': 'true',
-        'limit_resources': True,  # Uses pynisher to limit memory and runtime
+        'limit_resources': False, #True,  # Uses pynisher to limit memory and runtime
         # Alternatively, you can also disable this.
         # Then you should handle runtime and memory yourself in the TA
-        'cutoff': 3000,  # runtime limit for target algorithm
-        'memory_limit': 3072,  # adapt this to reasonable value for your hardware
+        'cutoff': 3500,  # runtime limit for target algorithm
+        # 'memory_limit': 3072,  # adapt this to reasonable value for your hardware
     })
 
-    # Max budget for hyperband can be anything. Here, we set it to maximum no. of epochs to train the MLP for
-    max_epochs = 50
-
     # Intensifier parameters
-    intensifier_kwargs = {'initial_budget': 5, 'max_budget': max_epochs, 'eta': 3}
+    intensifier_kwargs = {'initial_budget': 1000, 'max_budget': 10000, 'eta': 3}
 
     # To optimize, we pass the function to the SMAC-object
     smac = SMAC4MF(
@@ -375,14 +388,14 @@ if __name__ == "__main__":
 
     # Example call of the function with default values
     # It returns: Status, Cost, Runtime, Additional Infos
-    def_value = smac.get_tae_runner().run(
-        config=cs.get_default_configuration(),
-        budget=max_epochs,
-        seed=0)[1]
+    # def_value = smac.get_tae_runner().run(
+    #     config=cs.get_default_configuration(),
+    #     budget=10,  # intensifier_kwargs['initial_budget'],
+    #     seed=0)[1]
 
-    print('Value for default configuration: %.4f' % def_value)
+    # print('Value for default configuration: %.4f' % def_value)
 
-    # Start optimization
+    # (3) run & analyse the performances. --------------------------------------
     try:
         incumbent = smac.optimize()
     finally:
@@ -390,5 +403,5 @@ if __name__ == "__main__":
 
     inc_value = smac.get_tae_runner().run(
         config=incumbent,
-        budget=max_epochs,
+        budget=intensifier_kwargs['max_budget'],
         seed=0)[1]

@@ -26,7 +26,7 @@ class Autoencoder(nn.Module):
         self,
         input_dim: int = 10,
         hidden_dims: List[int] = [8,4],
-        latent_dim: int = 2,
+        embedding_dim: int = 2,
         weights=[1.0, 1.0, 1.0, 1.0],
         repellent_share=0.33,
         n_algos=20,
@@ -46,7 +46,7 @@ class Autoencoder(nn.Module):
         self.repellent_share = repellent_share
 
         # construct the autoencoder
-        self.latent_dim = latent_dim
+        self.latent_dim = embedding_dim
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
 
@@ -310,7 +310,7 @@ class Autoencoder(nn.Module):
 if __name__ == "__main__":
     auto_enc = Autoencoder(
         input_dim = 15,
-        latent_dim = 2,
+        embedding_dim= 2,
         hidden_dims = [10],
     )
     print(auto_enc)

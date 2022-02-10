@@ -99,9 +99,15 @@ class Agent_Gravitas:
                    algorithms_meta_features,
                    validation_learning_curves,
                    test_learning_curves,
-                   epochs=100,
-                   pretrain_epochs=100,
-                   batch_size=9):
+                   # set up the encoder architecture
+                   epochs=1000,
+                   pretrain_epochs=50, # fixme: change back!
+                   batch_size=9,
+                   n_compettitors=11,
+                   lr=0.001,
+                   embedding_dim = 2,
+                   weights = [1.,1.,1.,1.],
+                   repellent_share=0.33):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -140,7 +146,8 @@ class Agent_Gravitas:
         self.valid_dataset = Dataset_Gravity(
             dataset_meta_features,
             validation_learning_curves,
-            algorithms_meta_features)
+            algorithms_meta_features,
+            n_compettitors)
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
@@ -149,7 +156,8 @@ class Agent_Gravitas:
         self.test_dataset = Dataset_Gravity(
             dataset_meta_features,
             test_learning_curves,
-            algorithms_meta_features)
+            algorithms_meta_features,
+            n_compettitors)
         self.test_dataloader = DataLoader(
             self.test_dataset,
             shuffle=True,
@@ -168,10 +176,13 @@ class Agent_Gravitas:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = Autoencoder(
             input_dim=10,
-            latent_dim=2,
-            hidden_dims=[8, 4, 3],
-            n_algos=20,
-            device=device
+            embedding_dim=embedding_dim,
+            hidden_dims=[8, 4],
+            weights=weights,
+            repellent_share=repellent_share,
+            n_algos=self.nA,
+            device=device,
+
         )
 
         print('\nPretraining Autoencoder with reconstruction loss: ')
@@ -180,7 +191,7 @@ class Agent_Gravitas:
 
         print('\nTraining Autoencoder with gravity loss:')
         tracking, losses, test_losses = self.model.trainer(
-            self.valid_dataloader, self.test_dataloader, epochs=epochs)
+            self.valid_dataloader, self.test_dataloader, epochs=epochs, lr=lr)
 
         # self.plot_encoder_training(losses, losses_pre)
 
