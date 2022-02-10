@@ -7,6 +7,9 @@ from gravitas.base_encoder import BaseEncoder
 from gravitas.vae import VAE 
 from gravitas.dataset_gravitas import Dataset_Gravity
 
+import numpy as np
+import pdb
+
 # TODO: Validate the rudimentary impact of seeidng on the environment  
 
 class Agent_Gravitas:
@@ -33,7 +36,11 @@ class Agent_Gravitas:
         torch.cuda.manual_seed(seed)
         
 
-    def reset(self, dataset_meta_features, algorithms_meta_features):
+    def reset(
+            self, 
+            dataset_meta_features, 
+            algorithms_meta_features
+        ):
         """
         Reset the agents' memory for a new dataset
 
@@ -87,7 +94,9 @@ class Agent_Gravitas:
         self.algorithms_meta_features = algorithms_meta_features
         dataset_meta_features_df_testing, dataset_meta_feature_tensor_testing = \
             Dataset_Gravity._preprocess_dataset_properties_meta_testing(
-            dataset_meta_features, self.valid_dataset.normalizations)
+                        dataset_meta_features, 
+                        self.valid_dataset.normalizations
+                    )
 
         dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
 
@@ -95,12 +104,16 @@ class Agent_Gravitas:
         self.times = {k: 0. for k in algorithms_meta_features.keys()}
         self.obs_performances = {k: 0. for k in algorithms_meta_features.keys()}
 
+
+        # NOTE: Is this required in the RL setting? 
         # set delta_t's (i.e. budgets for each algo we'd like to inquire)
         self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
 
         # predict the ranking of algorithms for this dataset
         self.learned_rankings = self.model.predict_algorithms(
-            dataset_meta_feature_tensor_testing, topk=20)[0].tolist()
+                                    dataset_meta_feature_tensor_testing, 
+                                    topk=20
+                                )[0].tolist()
 
     def meta_train(self,
                    dataset_meta_features,
@@ -325,6 +338,11 @@ class Agent_Gravitas:
             self.obs_performances[str(A)] = R
 
         trials = sum(1 if t!= 0 else 0 for t in self.times.values())
+        
+        print(f'Trial Type: {trials}')
+        print(f'Learned Rankings: {np.shape(self.learned_rankings)}')
+        pdb.set_trace()
+        
         A = self.learned_rankings[trials]
         A_star  = A # FIXME: what is the difference?
         delta_t = self.budgets[trials]

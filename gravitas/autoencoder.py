@@ -257,7 +257,8 @@ class AE(BaseEncoder):
 
             # find k-nearest algorithms.
             # sort by distance in embedding space.
-            dist_mat = torch.cdist(Z_data, self.Z_algo)
+            dist_mat = torch.cdist(Z_data, self.Z_algo
+            )
             _, top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
 
         self.train()

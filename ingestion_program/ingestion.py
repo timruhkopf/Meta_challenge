@@ -139,9 +139,12 @@ def meta_testing(trained_agent, D_te):
 
         # === Reset both the environment and the trained_agent for a new task
         dataset_meta_features, algorithms_meta_features = env.reset(
-            dataset_name=dataset_name
-        )
-        trained_agent.reset(dataset_meta_features, algorithms_meta_features)
+                                                            dataset_name=dataset_name
+                                                        )
+        trained_agent.reset(
+                    dataset_meta_features, 
+                    algorithms_meta_features
+                )
         vprint(
             verbose,
             "\n#===================== Start META-TESTING on dataset: "

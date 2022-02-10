@@ -327,9 +327,10 @@ def compute_ALC(df, total_time_budget):
     for i in range(len(df)):
         if i == 0:
             if normalize_t:
-                alc += (df.iloc[i]["score"] - 0.0) * (
-                    1 - df.iloc[i]["total_time_spent"]
-                )
+                alc += (
+                        df.iloc[i]["score"] - 0.0) * (
+                                1 - df.iloc[i]["total_time_spent"]
+                        )
             else:
                 alc += (df.iloc[i]["score"] - 0.0) * (
                     total_time_budget - df.iloc[i]["total_time_spent"]
