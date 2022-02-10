@@ -1,5 +1,11 @@
 import os
 from sys import argv, path
+import sys
+import inspect
+
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0, parentdir)
 
 root_dir = os.getcwd()
 from environment import Meta_Learning_Environment
@@ -13,7 +19,6 @@ import base64
 verbose = True
 
 # === Setup input/output directories
-root_dir = "/home/ruhkopf/PycharmProjects/Meta_challenge/"  # os.getcwd()
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")

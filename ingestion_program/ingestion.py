@@ -156,6 +156,9 @@ def meta_testing(trained_agent, D_te):
         # === Start meta-testing on a dataset step by step until the given total_time_budget is exhausted (done=True)
         done = False
         observation = None
+        
+        # 
+
         while not done:
             # === Get the agent's suggestion
             action = trained_agent.suggest(observation)
@@ -237,7 +240,10 @@ if __name__ == "__main__":
     clear_output_dir(output_dir)
 
     # === Init K-folds cross-validation
-    kf = KFold(n_splits=6, shuffle=False)
+    kf = KFold(
+            n_splits=6, 
+            shuffle=False
+        )
 
     ################## MAIN LOOP ##################
     # === Init a meta-learning environment
@@ -254,7 +260,8 @@ if __name__ == "__main__":
     for D_tr, D_te in kf.split(list_datasets):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 
-        # Init a new agent instance in each iteration
+        # Init a new agent instance in each iteration to prevent
+        # leakage between folds
         agent = Agent(
                 number_of_algorithms=len(list_algorithms),
                 seed= seed
@@ -267,6 +274,10 @@ if __name__ == "__main__":
         meta_testing(trained_agent, D_te)
 
         iteration += 1
+
+        # TODO get the performance metric, log it        
+
+
         # break
     ################################################
 
