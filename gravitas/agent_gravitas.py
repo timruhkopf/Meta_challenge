@@ -101,7 +101,7 @@ class Agent_Gravitas:
                    test_learning_curves,
                    # set up the encoder architecture
                    epochs=1000,
-                   pretrain_epochs=50, # fixme: change back!
+                   pretrain_epochs=500, # fixme: change back!
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,
