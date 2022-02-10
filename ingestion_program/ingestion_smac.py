@@ -7,6 +7,30 @@ from sklearn.model_selection import KFold
 import time
 import datetime
 import shutil
+import pdb
+import inspect
+import sys
+
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0, parentdir)
+
+
+import logging
+
+logging.basicConfig(level=logging.INFO)
+import numpy as np
+import torch
+from sklearn.metrics import ndcg_score, label_ranking_loss
+from gravitas.dataset_gravitas import Dataset_Gravity
+import ConfigSpace as CS
+from ConfigSpace.hyperparameters import \
+    CategoricalHyperparameter, UniformFloatHyperparameter, UniformIntegerHyperparameter
+
+from smac.configspace import ConfigurationSpace
+from smac.facade.smac_mf_facade import SMAC4MF
+from smac.scenario.scenario import Scenario
+
 
 # === Verbose mode
 verbose = True
@@ -15,7 +39,7 @@ verbose = True
 random.seed(208)
 
 # === Setup input/output directories
-root_dir = "/home/ruhkopf/PycharmProjects/Meta_challenge/"  # os.getcwd()
+root_dir = os.getcwd()
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
@@ -233,20 +257,7 @@ if __name__ == "__main__":
 
     # TODO SMAC HPO the Agent's meta training Autoencoder --------------------------------------------------------------
 
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
-    import numpy as np
-    import torch
-    from sklearn.metrics import ndcg_score, label_ranking_loss
-    from gravitas.dataset_gravitas import Dataset_Gravity
-    import ConfigSpace as CS
-    from ConfigSpace.hyperparameters import \
-        CategoricalHyperparameter, UniformFloatHyperparameter, UniformIntegerHyperparameter
-
-    from smac.configspace import ConfigurationSpace
-    from smac.facade.smac_mf_facade import SMAC4MF
-    from smac.scenario.scenario import Scenario
+    
 
     # (0) ConfigSpace ----------------------------------------------------------
     cs = ConfigurationSpace()
