@@ -341,8 +341,6 @@ if __name__ == "__main__":
             holdout_rankings_truth = np.array(holdout_rankings)
             holdout_embedding_distances = torch.stack(holdout_embedding_distances)
 
-
-
             # compute the fold's loss
             # Fixme: choose a K?? NDCG@K loss!
             with torch.no_grad():
@@ -363,16 +361,19 @@ if __name__ == "__main__":
 
 
     # (2) Set up SMAC-MF with budget schedual ----------------------------------
+    HOURS = 15
     scenario = Scenario({
         'run_obj': 'quality',  # we optimize quality (alternative to runtime)
-        'wallclock-limit': 3600,  # max duration to run the optimization (in seconds)
+        'wallclock-limit': 3600 * HOURS,  # max duration to run the optimization (in seconds)
         'cs': cs,  # configuration space
         'deterministic': 'true',
-        'limit_resources': False, #True,  # Uses pynisher to limit memory and runtime
+        'limit_resources': True,  # Uses pynisher to limit memory and runtime
         # Alternatively, you can also disable this.
         # Then you should handle runtime and memory yourself in the TA
         'cutoff': 3500,  # runtime limit for target algorithm
         # 'memory_limit': 3072,  # adapt this to reasonable value for your hardware
+        'output_dir': default_output_dir,
+        'save_instantly': True
     })
 
     # Intensifier parameters
