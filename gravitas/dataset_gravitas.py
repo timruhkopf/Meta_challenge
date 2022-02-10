@@ -5,9 +5,19 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 class Dataset_Gravity(Dataset):
-    def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features, no_competitors=11):
+    def __init__(
+            self, 
+            dataset_meta_features, 
+            learning_curves, 
+            algorithms_meta_features, 
+            no_competitors=11, 
+            seed=123456
+        ):
         """
 
         :param dataset_meta_features:
@@ -22,6 +32,8 @@ class Dataset_Gravity(Dataset):
         # needed for plotting
         self.raw_learning_curves = learning_curves
         self.raw_dataset_meta_features = dataset_meta_features
+        random.seed(seed)
+        np.random.seed(seed)
 
     def __len__(self):
         return len(self.datasets_meta_features)
@@ -81,12 +93,6 @@ class Dataset_Gravity(Dataset):
         self._preporcess_scalar_properties(self.algo_learning_curves)
         self._preprocess_dataset_properties(learning_curves, dataset_meta_features)
         self._preprocess_thresholded_algo_performances(k=10)
-        # # amount of time on the datasets to find out which algo works best:
-        # plt.hist(self.df_data_meta_features['time_budget'])
-        # plt.show()
-        #
-        # plt.hist([datum.topk_available_trials for datum in self.dataset_learning_properties.values()])
-        # plt.show()
 
     def _preprocess_learning_curves(self, algorithms_meta_features, learning_curves):
         """Enrich the learning curve objects with properties computed on the learning curve
@@ -262,7 +268,7 @@ class Dataset_Gravity(Dataset):
         self.algo_performances = algo_performances
 
     def plot_learning_curves(self, dataset_id=9):
-        import matplotlib.pyplot as plt
+        
 
         for id, curve in self.raw_learning_curves[str(dataset_id)].items():
             plt.plot(curve.timestamps, curve.scores, marker='o', linestyle='dashed', label=id)
@@ -274,8 +280,6 @@ class Dataset_Gravity(Dataset):
         plt.show()
 
     def plot_convergence90_time(self, normalized=True):
-        import seaborn as sns
-        import matplotlib.pyplot as plt
 
         for dataset_id, dataset_curves in self.raw_learning_curves.items():
 

@@ -1,6 +1,8 @@
 import os
 from sys import argv, path
 
+import pdb
+
 root_dir = os.path.abspath(os.curdir)
 path.append(root_dir)
 import json
@@ -290,9 +292,15 @@ class Meta_Learning_Environment:
         total_time_spent = np.around(
             self.total_time_budget - self.remaining_time_budget, decimals=2
         )
-        hidden_observation = [str(A_star), str(C_A_star), total_time_spent]
+        hidden_observation = [
+                                str(A_star),            # Algorithm
+                                str(C_A_star),          # Perofrmance of Algorithm
+                                total_time_spent        # Time spent
+                            ]
+        
         with open(self.output_dir + "/" + self.dataset_name + ".csv", "a") as f:
             writer = csv.writer(f)  # create the csv writer
             writer.writerow(hidden_observation)  # write a row to the csv file
 
         return observation, done
+

@@ -1,21 +1,31 @@
 import os
+import sys
 from sys import argv, path
-from ingestion_program.environment import Meta_Learning_Environment
 import random
 import os
 from sklearn.model_selection import KFold
-import time
-import datetime
 import shutil
+import pdb
+import inspect
+
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0, parentdir)
+
+
+from ingestion_program import Meta_Learning_Environment
 
 # === Verbose mode
 verbose = True
 
-# === Set RANDOM SEED
-random.seed(208)
+# === seeding
+seed = 123456
+
+# === Set RANDOM SEED : TODO see how this translates to the whole pipeline
+random.seed(seed)
 
 # === Setup input/output directories
-root_dir = "/home/ruhkopf/PycharmProjects/Meta_challenge/"  # os.getcwd()
+root_dir = os.getcwd()
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
@@ -25,19 +35,15 @@ default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
 def vprint(mode, t):
     """
     Print to stdout, only if in verbose mode.
-
     Parameters
     ----------
     mode : bool
         True if the verbose mode is on, False otherwise.
-
     Examples
     --------
     >>> vprint(True, "hello world")
     hello world
-
     >>> vprint(False, "hello world")
-
     """
 
     if mode:
@@ -47,7 +53,6 @@ def vprint(mode, t):
 def clear_output_dir(output_dir):
     """
     Delete previous output files.
-
     Parameters
     ----------
     output_dir : str
@@ -66,14 +71,12 @@ def clear_output_dir(output_dir):
 def meta_training(agent, D_tr):
     """
     Meta-train an agent on a set of datasets.
-
     Parameters
     ----------
     agent : Agent
         The agent before meta-training.
     D_tr : list of str
         List of dataset indices used for meta-training
-
     Returns
     -------
     agent : Agent
@@ -119,7 +122,6 @@ def meta_training(agent, D_tr):
 def meta_testing(trained_agent, D_te):
     """
     Meta-test the trained agent on a set of datasets.
-
     Parameters
     ----------
     trained_agent : Agent
@@ -154,6 +156,9 @@ def meta_testing(trained_agent, D_te):
         # === Start meta-testing on a dataset step by step until the given total_time_budget is exhausted (done=True)
         done = False
         observation = None
+        
+        # 
+
         while not done:
             # === Get the agent's suggestion
             action = trained_agent.suggest(observation)
@@ -235,7 +240,10 @@ if __name__ == "__main__":
     clear_output_dir(output_dir)
 
     # === Init K-folds cross-validation
-    kf = KFold(n_splits=6, shuffle=False)
+    kf = KFold(
+            n_splits=6, 
+            shuffle=False
+        )
 
     ################## MAIN LOOP ##################
     # === Init a meta-learning environment
@@ -252,8 +260,12 @@ if __name__ == "__main__":
     for D_tr, D_te in kf.split(list_datasets):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 
-        # Init a new agent instance in each iteration
-        agent = Agent(number_of_algorithms=len(list_algorithms))
+        # Init a new agent instance in each iteration to prevent
+        # leakage between folds
+        agent = Agent(
+                number_of_algorithms=len(list_algorithms),
+                seed= seed
+                )
 
         # === META-TRAINING
         trained_agent = meta_training(agent, D_tr)
@@ -262,6 +274,10 @@ if __name__ == "__main__":
         meta_testing(trained_agent, D_te)
 
         iteration += 1
+
+        # TODO get the performance metric, log it        
+
+
         # break
     ################################################
 

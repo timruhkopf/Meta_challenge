@@ -9,7 +9,7 @@ import pdb
 
 from gravitas.base_encoder import BaseEncoder
 
-class AE(BaseEncoder):
+class VAE(BaseEncoder):
     # TODO allow for algo meta features
     def __init__(
         self,
@@ -67,12 +67,19 @@ class AE(BaseEncoder):
             modules.append(nn.ReLU())
             input_dim = h_dim
 
-        modules.append(nn.Linear(input_dim, self.latent_dim))
-        modules.append(nn.BatchNorm1d(self.latent_dim))
-        modules.append(nn.Dropout(p=0.5))
-        modules.append(nn.ReLU())
-
+        
         self.encoder = torch.nn.Sequential(*modules)
+
+        # Mean and std_dev for the latent distribution
+        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.latent_dim)
+        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.latent_dim)
+
+        # modules.append(nn.Linear(input_dim, self.latent_dim))
+        # modules.append(nn.BatchNorm1d(self.latent_dim))
+        # modules.append(nn.Dropout(p=0.5))
+        # modules.append(nn.ReLU())
+
+        
 
         # Make the decoder
         modules = []
@@ -88,13 +95,41 @@ class AE(BaseEncoder):
             input_dim = h_dim
 
         modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())  #input_dim, self.input_dim
+        modules.append(nn.Sigmoid()) 
 
 
         self.decoder = nn.Sequential(*modules)
 
+    
+    def reparameterize(
+                    self, 
+                    mu: torch.Tensor, 
+                    logvar: torch.Tensor) -> torch.Tensor:
+        """
+        Reparameterization trick to sample from N(mu, var)
+        """
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        
+        return eps * std + mu
+    
     def encode(self, x):
-        return self.encoder(x)
+        
+        # Forward pass the input through the network
+        result = self.encoder(x)
+
+        # Get the mean and standard deviation from the output 
+        mu = self.fc_mu(result)
+        log_var = self.fc_var(result)
+
+        # TODO: Plot latent distributions
+
+
+
+        # Sample a latent vector using the reparameterization trick
+        z = self.reparameterize(mu, log_var)
+
+        return z        
 
     def decode(self, x):
         return self.decoder(x)
@@ -261,4 +296,6 @@ class AE(BaseEncoder):
             _, top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
 
         self.train()
+
+        return top_algo
 
