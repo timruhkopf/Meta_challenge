@@ -63,7 +63,7 @@ def clear_output_dir(output_dir):
     os.system("find . -name '.DS_Store' -type f -delete")
 
 
-def meta_training(agent, D_tr):
+def meta_training(agent, D_tr, env):
     """
     Meta-train an agent on a set of datasets.
 
@@ -116,7 +116,7 @@ def meta_training(agent, D_tr):
     return agent
 
 
-def meta_testing(trained_agent, D_te):
+def meta_testing(trained_agent, D_te, env):
     """
     Meta-test the trained agent on a set of datasets.
 
@@ -177,9 +177,8 @@ def meta_testing(trained_agent, D_te):
 
 if __name__ == "__main__":
     # === Get input and output directories
-    if (
-            len(argv) == 1
-    ):  # Use the default input and output directories if no arguments are provided
+    if (len(argv) == 1):
+        # Use the default input and output directories if no arguments are provided
         input_dir = default_input_dir
         output_dir = default_output_dir
         program_dir = default_program_dir
@@ -209,9 +208,7 @@ if __name__ == "__main__":
     vprint(verbose, "Using validation_data_dir: " + validation_data_dir)
     vprint(verbose, "Using test_data_dir: " + test_data_dir)
     vprint(verbose, "Using meta_features_dir: " + meta_features_dir)
-    vprint(
-        verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir
-    )
+    vprint(verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir)
 
     # === List of dataset names
     list_datasets = os.listdir(validation_data_dir)
@@ -225,7 +222,7 @@ if __name__ == "__main__":
         list_algorithms.remove(".DS_Store")
     list_algorithms.sort()
 
-    # === Import the agent submitted by the participant ----------------------------------------------------------------
+    # === Import the agent submitted by the participant ------------------------
     path.append(submission_dir)
     from gravitas.agent_gravitas import (
         Agent_Gravitas as Agent,
@@ -235,8 +232,7 @@ if __name__ == "__main__":
     clear_output_dir(output_dir)
 
     # TODO SMAC HPO the Agent's meta training Autoencoder --------------------------------------------------------------
-    #  !! make Meta_training dependent on the hyperparameters !!
-    #  set up hyperband with multiple epoch-fidelities
+
     import logging
 
     logging.basicConfig(level=logging.INFO)
@@ -254,29 +250,27 @@ if __name__ == "__main__":
 
     # (0) ConfigSpace ----------------------------------------------------------
     cs = ConfigurationSpace()
-    n_compettitors = UniformIntegerHyperparameter('n_compettitors', 1, 19, default_value=10)
-    embedding_dim = UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3)
-    repellent_threshold = UniformFloatHyperparameter('repellent_threshold', 0., .8, default_value=0.33)
-    lossweight1 = UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.)
-    lossweight2 = UniformFloatHyperparameter('lossweight2', 0., 10., default_value=1.)
-    lossweight3 = UniformFloatHyperparameter('lossweight3', 0., 10., default_value=1.)
-    lossweight4 = UniformFloatHyperparameter('lossweight4', 0., 10., default_value=1.)
-    learning_rate_init = UniformFloatHyperparameter(
-        'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True)
 
     # Add all hyperparameters at once:
     cs.add_hyperparameters(
-        [n_compettitors, embedding_dim, repellent_threshold, lossweight1,
-         lossweight2, lossweight3, lossweight4, learning_rate_init])
+        [UniformIntegerHyperparameter('n_compettitors', 1, 19, default_value=10),
+         UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3),
+         UniformFloatHyperparameter('repellent_threshold', 0., .8, default_value=0.33),
+         UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.),
+         UniformFloatHyperparameter('lossweight2', 0., 10., default_value=1.),
+         UniformFloatHyperparameter('lossweight3', 0., 10., default_value=1.),
+         UniformFloatHyperparameter('lossweight4', 0., 10., default_value=1.),
+         UniformFloatHyperparameter(
+             'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True)])
 
 
     # (1) TAE ------------------------------------------------------------------
-    # TODO make TAE config dependent
-    def tae(cfg):
+    def tae(cfg, budget):
+        """Gravity Autoencoder loss NDCG (@K) loss"""
         # === Init K-folds cross-validation
         kf = KFold(n_splits=6, shuffle=False)
 
-        ################## MAIN LOOP ##################
+        # FIXME: Enviroment needs to be available to Meta_training & testing functions!
         # === Init a meta-learning environment
         env = Meta_Learning_Environment(
             validation_data_dir,
@@ -297,7 +291,8 @@ if __name__ == "__main__":
             agent = Agent(number_of_algorithms=len(list_algorithms))
 
             # META-TRAINING-----------
-            trained_agent = meta_training(agent, D_tr)
+            # TODO make TAE config dependent
+            trained_agent = meta_training(agent, D_tr, env)
 
             # precompute ground trugh labels:
             # get ground truth label
@@ -328,7 +323,6 @@ if __name__ == "__main__":
                 d_new = meta_test_dataset.datasets_meta_features[d_te].reshape(1, -1)
                 d_new = d_new.to(agent.model.device)
                 agent.model.eval()
-                # fixme: encoding seems not to work
                 Z_data = agent.model.encode(d_new)
                 dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
 
@@ -348,6 +342,53 @@ if __name__ == "__main__":
         # average across holdout_scores
         return 1 - (sum(holdout_losses_ndcg) / (len(D_te) * 6))  # no_splits=6
 
+
     # (2) Set up SMAC-MF with budget schedual
     tae(None)
+
     # (3) run & analyse the performances.
+    scenario = Scenario({
+        'run_obj': 'quality',  # we optimize quality (alternative to runtime)
+        'wallclock-limit': 3600,  # max duration to run the optimization (in seconds)
+        'cs': cs,  # configuration space
+        'deterministic': 'true',
+        'limit_resources': True,  # Uses pynisher to limit memory and runtime
+        # Alternatively, you can also disable this.
+        # Then you should handle runtime and memory yourself in the TA
+        'cutoff': 3000,  # runtime limit for target algorithm
+        'memory_limit': 3072,  # adapt this to reasonable value for your hardware
+    })
+
+    # Max budget for hyperband can be anything. Here, we set it to maximum no. of epochs to train the MLP for
+    max_epochs = 50
+
+    # Intensifier parameters
+    intensifier_kwargs = {'initial_budget': 5, 'max_budget': max_epochs, 'eta': 3}
+
+    # To optimize, we pass the function to the SMAC-object
+    smac = SMAC4MF(
+        scenario=scenario,
+        rng=np.random.RandomState(42),
+        tae_runner=tae,
+        intensifier_kwargs=intensifier_kwargs
+    )
+
+    # Example call of the function with default values
+    # It returns: Status, Cost, Runtime, Additional Infos
+    def_value = smac.get_tae_runner().run(
+        config=cs.get_default_configuration(),
+        budget=max_epochs,
+        seed=0)[1]
+
+    print('Value for default configuration: %.4f' % def_value)
+
+    # Start optimization
+    try:
+        incumbent = smac.optimize()
+    finally:
+        incumbent = smac.solver.incumbent
+
+    inc_value = smac.get_tae_runner().run(
+        config=incumbent,
+        budget=max_epochs,
+        seed=0)[1]
