@@ -348,7 +348,7 @@ if __name__ == "__main__":
 
                 holdout_losses_ndcg.append(
                     ndcg_score(holdout_rankings_truth, holdout_embedding_distances.numpy(),
-                               k=None, sample_weight=None, ignore_ties=False))
+                               k=10, sample_weight=None, ignore_ties=False))
 
             # todo ranking loss: requires to collect the learned rankings per dataset_new
             # holdout_losses_ranking.append(
