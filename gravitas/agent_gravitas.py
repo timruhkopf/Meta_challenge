@@ -7,9 +7,6 @@ from gravitas.base_encoder import BaseEncoder
 from gravitas.vae import VAE 
 from gravitas.dataset_gravitas import Dataset_Gravity
 
-import numpy as np
-import pdb
-
 
 class Agent_Gravitas:
     def __init__(
@@ -323,10 +320,6 @@ class Agent_Gravitas:
             self.obs_performances[str(A)] = R
 
         trials = sum(1 if t!= 0 else 0 for t in self.times.values())
-        
-        print(f'Trial Type: {trials}')
-        print(f'Learned Rankings: {np.shape(self.learned_rankings)}')
-        pdb.set_trace()
         
         A = self.learned_rankings[trials]
         A_star  = A # FIXME: what is the difference?
