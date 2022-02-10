@@ -1,6 +1,5 @@
 import os
 from sys import argv, path
-from ingestion_program.environment import Meta_Learning_Environment
 import random
 import os
 from sklearn.model_selection import KFold
@@ -17,6 +16,8 @@ sys.path.insert(0, parentdir)
 
 
 import logging
+
+from ingestion_program.environment import Meta_Learning_Environment
 
 logging.basicConfig(level=logging.INFO)
 import numpy as np
