@@ -188,6 +188,17 @@ class AE(BaseEncoder):
         # TODO check convergence: look if neither Z_algo nor Z_data move anymore!
         return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr)
 
+    def training_schedual(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+        # Consider Marius idea to first find a reasonable data representation
+        #  and only than train with the algorithms
+
+        # pretrain
+
+        # train datasets
+
+        # train algorithms
+        pass
+
     def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
         losses = []
         test_losses = []

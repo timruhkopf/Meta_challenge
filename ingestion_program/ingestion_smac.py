@@ -14,7 +14,6 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir)
 
-
 import logging
 
 from ingestion_program.environment import Meta_Learning_Environment
@@ -32,15 +31,28 @@ from smac.configspace import ConfigurationSpace
 from smac.facade.smac_mf_facade import SMAC4MF
 from smac.scenario.scenario import Scenario
 
-
 # === Verbose mode
 verbose = True
 
 # === Set RANDOM SEED
 random.seed(208)
 
+import argparse
+
+parser = argparse.ArgumentParser()
+# Make sure to set up in this files parent directory!
+parser.add_argument("hours", type=int,
+                    help="hours allocated to smac")
+parser.add_argument("--encoder", type=str, choices=['AE', 'VAE'], default='AE',
+                    help="hours allocated to smac")
+parser.add_argument("--min_b", type=int, default=1000,
+                    help="minimum budget for hyperband")
+parser.add_argument("--max_b", type=int, default=10000,
+                    help="maximum budget for hyperband")
+args = parser.parse_args()
+
 # === Setup input/output directories
-root_dir = os.getcwd()
+root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
@@ -202,29 +214,29 @@ def meta_testing(trained_agent, D_te, env):
 
 if __name__ == "__main__":
     # === Get input and output directories
-    if (len(argv) == 1):
+    # if (len(argv) == 1):
         # Use the default input and output directories if no arguments are provided
-        input_dir = default_input_dir
-        output_dir = default_output_dir
-        program_dir = default_program_dir
-        submission_dir = default_submission_dir
-        validation_data_dir = os.path.join(input_dir, "valid")
-        test_data_dir = os.path.join(input_dir, "test")
-        meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
-        algorithms_meta_features_dir = os.path.join(
-            input_dir, "algorithms_meta_features"
-        )
-    else:
-        input_dir = os.path.abspath(argv[1])
-        output_dir = os.path.abspath(argv[2])
-        program_dir = os.path.abspath(argv[3])
-        submission_dir = os.path.abspath(argv[4])
-        validation_data_dir = os.path.join(input_dir, "valid")
-        test_data_dir = os.path.join(input_dir, "test")
-        meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
-        algorithms_meta_features_dir = os.path.join(
-            input_dir, "algorithms_meta_features"
-        )
+    input_dir = default_input_dir
+    output_dir = default_output_dir
+    program_dir = default_program_dir
+    submission_dir = default_submission_dir
+    validation_data_dir = os.path.join(input_dir, "valid")
+    test_data_dir = os.path.join(input_dir, "test")
+    meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
+    algorithms_meta_features_dir = os.path.join(
+        input_dir, "algorithms_meta_features"
+    )
+    # else:
+    #     input_dir = os.path.abspath(argv[1])
+    #     output_dir = os.path.abspath(argv[2])
+    #     program_dir = os.path.abspath(argv[3])
+    #     submission_dir = os.path.abspath(argv[4])
+    #     validation_data_dir = os.path.join(input_dir, "valid")
+    #     test_data_dir = os.path.join(input_dir, "test")
+    #     meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
+    #     algorithms_meta_features_dir = os.path.join(
+    #         input_dir, "algorithms_meta_features"
+    #     )
 
     vprint(verbose, "Using input_dir: " + input_dir)
     vprint(verbose, "Using output_dir: " + output_dir)
@@ -257,8 +269,6 @@ if __name__ == "__main__":
     clear_output_dir(output_dir)
 
     # TODO SMAC HPO the Agent's meta training Autoencoder --------------------------------------------------------------
-
-    
 
     # (0) ConfigSpace ----------------------------------------------------------
     cs = ConfigurationSpace()
@@ -311,7 +321,7 @@ if __name__ == "__main__":
             vprint(verbose, "\n********** Fold " + str(iteration) + " **********")
 
             # Init a new agent instance in each iteration
-            agent = Agent(number_of_algorithms=len(list_algorithms))
+            agent = Agent(number_of_algorithms=len(list_algorithms), root_dir=root_dir, encoder=args.encoder)
 
             # META-TRAINING-----------
             trained_agent = meta_training(agent, D_tr, env, encoder_config=config, epochs=budget)
@@ -373,10 +383,9 @@ if __name__ == "__main__":
 
 
     # (2) Set up SMAC-MF with budget schedual ----------------------------------
-    HOURS = 15
     scenario = Scenario({
         'run_obj': 'quality',  # we optimize quality (alternative to runtime)
-        'wallclock-limit': 3600 * HOURS,  # max duration to run the optimization (in seconds)
+        'wallclock-limit': int(3600 * args.hours),  # max duration to run the optimization (in seconds)
         'cs': cs,  # configuration space
         'deterministic': 'true',
         'limit_resources': False,  # Uses pynisher to limit memory and runtime
@@ -389,7 +398,7 @@ if __name__ == "__main__":
     })
 
     # Intensifier parameters
-    intensifier_kwargs = {'initial_budget': 1000, 'max_budget': 10000, 'eta': 3}
+    intensifier_kwargs = {'initial_budget': args.min_b, 'max_budget': args.max_b, 'eta': 3}
 
     # To optimize, we pass the function to the SMAC-object
     smac = SMAC4MF(
@@ -401,10 +410,14 @@ if __name__ == "__main__":
 
     # Example call of the function with default values
     # It returns: Status, Cost, Runtime, Additional Infos
-    # def_value = smac.get_tae_runner().run(
-    #     config=cs.get_default_configuration(),
-    #     budget=10,  # intensifier_kwargs['initial_budget'],
-    #     seed=0)[1]
+    try:
+        def_value = smac.get_tae_runner().run(
+            config=cs.get_default_configuration(),
+            budget=3,  # intensifier_kwargs['initial_budget'],
+            seed=0)[1]
+        print('Default config ran successfully.')
+    except:
+        raise ValueError('default configuration didn\'t run')
 
     # print('Value for default configuration: %.4f' % def_value)
 
