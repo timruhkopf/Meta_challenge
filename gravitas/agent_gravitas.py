@@ -13,7 +13,8 @@ class Agent_Gravitas:
             self, 
             number_of_algorithms,
             encoder: str = "VAE", 
-            seed=123546):
+            seed=123546
+        ):
         """
         Initialize the agent
 
@@ -22,7 +23,15 @@ class Agent_Gravitas:
         number_of_algorithms : int
             The number of algorithms
 
+        encoder : str
+            The encoder to use. 
+            'AE' for the vanilla autoencoder
+            'VAE' for the variational autoencoder
+        
+        seed : int
+            The seed for the random number generator
         """
+        
         self.nA = number_of_algorithms
         self.times = [0.] * self.nA
         self.encoder = encoder
