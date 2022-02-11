@@ -1,4 +1,5 @@
 from sklearn.linear_model import QuantileRegressor
+from sklearn import metrics
 import torch
 from torch.utils.data import DataLoader
 
@@ -16,7 +17,7 @@ class Agent_Gravitas:
     def __init__(
             self, 
             number_of_algorithms,
-            encoder: str = "VAE", 
+            encoder: str = "VAE",   ## Change to 'AE' for vanilla Autoencoder
             seed=123546):
         """
         Initialize the agent
@@ -162,6 +163,12 @@ class Agent_Gravitas:
             dataset_meta_features,
             validation_learning_curves,
             algorithms_meta_features)
+
+
+        print(validation_learning_curves['24']['0'])
+
+        pdb.set_trace()
+
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
@@ -186,7 +193,7 @@ class Agent_Gravitas:
         #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
 
         # meta_learn convergence speed
-        self.meta_train_convergence_speed(confidence=0.9)
+        self.meta_train_convergence_speed(confidence=0.1)
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -207,6 +214,12 @@ class Agent_Gravitas:
             self.valid_dataloader, self.test_dataloader, epochs=epochs)
 
         self.plot_encoder_training(losses, losses_pre)
+
+        ### TODO: Multi-armed bandit algorithm
+        ## Reward function
+        self.opt_loop()
+
+
 
     def plot_encoder_training(self, losses, losses_pre):
         # fixme: remove the below plotting method
@@ -255,7 +268,7 @@ class Agent_Gravitas:
         """
 
         # TODO: also use test dataset info for convergence speed learning
-        print('Training 90% convergence speed.')
+        print(f'Training {confidence*10}% convergence speed.')
         X = self.valid_dataset.datasets_meta_features_df
         Y = self.valid_dataset.algo_convergences90_time
 
@@ -264,23 +277,6 @@ class Agent_Gravitas:
         for algo in Y.columns:
             self.qr_models[algo] = QuantileRegressor(quantile=confidence, alpha=0)
             self.qr_models[algo].fit(X, Y[algo])
-
-        # FIXME: remove the below validation of QR procedure
-        # dataset_id = 9
-        # predictions = {k: None for k in Y.columns}
-        # for algo in Y.columns:
-        #     predictions[algo] = self.qr_models[algo].predict(X)
-        #
-        # predictions = pd.DataFrame(predictions, index=X.index, columns=Y.columns)
-        #
-        # import matplotlib.pyplot as plt
-        # plt.scatter(x=predictions.loc[dataset_id], y=[0.] * len(Y.columns))
-        # self.valid_dataset.plot_learning_curves(str(dataset_id))
-
-        # Consider exploit complexity information based on landmarking:
-        #  e.g. Linear mixed model Quantile regression with
-
-        # todo  use embedding as additional feature
 
     def predict_convergence_speed(self, df):
         """Predict the 90% convergence time budget we would like to allocate for each algorithm
@@ -339,14 +335,50 @@ class Agent_Gravitas:
 
         trials = sum(1 if t!= 0 else 0 for t in self.times.values())
         
-        print(f'Trial Type: {trials}')
-        print(f'Learned Rankings: {np.shape(self.learned_rankings)}')
-        pdb.set_trace()
-        
+                
         A = self.learned_rankings[trials]
+        
+        print(f'Budgets: {self.budgets}')
+        print(f'trials: {trials}')
+        print(f'\nSuggesting algorithm {A}')
+        print(f'Learned rankings  : {self.learned_rankings}')
+        print(f'Observed performances: {self.obs_performances}')
+        print(f'Times: {self.times}')
+        pdb.set_trace()
+
         A_star  = A # FIXME: what is the difference?
         delta_t = self.budgets[trials]
 
         # TODO among the prime candidates try out those first, that need the least budget?
         return A_star, A, delta_t
 
+    def get_algo(self):
+        """
+        Sample an algorithm from a categorical distribution
+        """
+
+        x = torch.distributions.categorical.Categorical(
+                                        torch.tensor(
+                                                self.algo_opt_probs
+                                        ))
+
+        return x.sample()
+        
+
+    def opt_loop(self):
+        
+        # Get initial budgets
+        self.opt_budgets = self.budgets
+        
+        # Make initial action probability distribuion
+        self.algo_opt_probs = np.zeros(np.max(self.learned_rankings) + 1)
+        for i in range(len(self.learned_rankings)):
+            self.algo_opt_probs[self.learned_rankings[i]] += 2 * i
+
+        self.algo_opt_probs /= np.max(self.algo_opt_probs)
+
+        
+
+        
+        pass 
+    
