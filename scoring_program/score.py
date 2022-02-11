@@ -7,7 +7,7 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir)
 
-root_dir = os.getcwd()
+root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
 from environment import Meta_Learning_Environment
 import pandas as pd
 import numpy as np
@@ -451,7 +451,7 @@ if __name__ == "__main__":
 
         # === Normalizing t
         if normalize_t:
-            normalize_time(updated_df, total_time_budget, t_0)
+            normalize_time(updated_df, total_time_budget, t_0)  # fixme: this line causes an error
 
         # === Get the final score
         final_score = updated_df.iloc[-1]["score"]
