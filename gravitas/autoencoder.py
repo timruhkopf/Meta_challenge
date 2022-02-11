@@ -5,7 +5,6 @@ from tqdm import tqdm
 
 from typing import List
 
-
 from gravitas.base_encoder import BaseEncoder
 
 class AE(BaseEncoder):
@@ -14,10 +13,10 @@ class AE(BaseEncoder):
         self,
         input_dim: int = 10,
         hidden_dims: List[int] = [8,4],
-        latent_dim: int = 2,
-        weights: List[float]=[1.0, 1.0, 1.0, 1.0],
-        repellent_share: float =0.33,
-        n_algos: int =20,
+        embedding_dim: int = 2,
+        weights=[1.0, 1.0, 1.0, 1.0],
+        repellent_share=0.33,
+        n_algos=20,
         device=None,
     ):
         """
@@ -34,7 +33,7 @@ class AE(BaseEncoder):
         self.repellent_share = repellent_share
 
         # construct the autoencoder
-        self.latent_dim = latent_dim
+        self.latent_dim = embedding_dim
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
 
@@ -261,3 +260,4 @@ class AE(BaseEncoder):
 
         self.train()
 
+        return top_algo

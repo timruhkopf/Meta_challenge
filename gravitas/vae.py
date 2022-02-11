@@ -15,7 +15,7 @@ class VAE(BaseEncoder):
         self,
         input_dim: int = 10,
         hidden_dims: List[int] = [8,4],
-        latent_dim: int = 2,
+        embedding_dim: int = 2,
         weights: List[float]=[1.0, 1.0, 1.0, 1.0],
         repellent_share: float =0.33,
         n_algos: int =20,
@@ -35,7 +35,7 @@ class VAE(BaseEncoder):
         self.repellent_share = repellent_share
 
         # construct the autoencoder
-        self.latent_dim = latent_dim
+        self.embedding_dim = embedding_dim
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
 
@@ -43,7 +43,7 @@ class VAE(BaseEncoder):
 
         # initialize the algorithms in embedding space
         self.n_algos = n_algos
-        self.embedding_dim = self.latent_dim
+        self.embedding_dim = self.embedding_dim
         self.Z_algo = nn.Parameter(
             td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
         )
@@ -71,8 +71,8 @@ class VAE(BaseEncoder):
         self.encoder = torch.nn.Sequential(*modules)
 
         # Mean and std_dev for the latent distribution
-        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.latent_dim)
-        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.latent_dim)
+        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
+        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
 
         # modules.append(nn.Linear(input_dim, self.latent_dim))
         # modules.append(nn.BatchNorm1d(self.latent_dim))
@@ -85,7 +85,7 @@ class VAE(BaseEncoder):
         modules = []
 
         hidden_dims.reverse()
-        input_dim = self.latent_dim
+        input_dim = self.embedding_dim
 
         for h_dim in hidden_dims:
             modules.append(nn.Linear(input_dim, h_dim))
