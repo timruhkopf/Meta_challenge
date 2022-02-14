@@ -29,9 +29,11 @@ run_config_df = pd.merge(config_df, run_df, left_index=True, right_on='config_id
 
 
 # Find the not failed configs on highest fidelity.
-final_fidelity = run_df[(run_df['budget'] == 10000) & (run_df['status'] == 'StatusType.SUCCESS')]
-final_fidelity[['config_id', 'cost', 'budget', 'status']].sort_values('cost')
+final_fidelity = run_config_df[(run_df['budget'] == 10000) & (run_df['status'] == 'StatusType.SUCCESS')]
+final_fidelity = final_fidelity[['cost', 'budget', 'status', *config_df.columns]].sort_values('cost')
 
 
 run_config_df.to_csv(f'{root_dir}/output/run_{run_id}/run_{run_id}.csv')
+
+
 
