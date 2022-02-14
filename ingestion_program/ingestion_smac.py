@@ -31,17 +31,11 @@ from smac.configspace import ConfigurationSpace
 from smac.facade.smac_mf_facade import SMAC4MF
 from smac.scenario.scenario import Scenario
 
-# === Verbose mode
-verbose = True
-
-# === Set RANDOM SEED
-random.seed(208)
-
 import argparse
 
 parser = argparse.ArgumentParser()
 # Make sure to set up in this files parent directory!
-parser.add_argument("hours", type=int,
+parser.add_argument("--hours", type=int, default=1,
                     help="hours allocated to smac")
 parser.add_argument("--encoder", type=str, choices=['AE', 'VAE'], default='AE',
                     help="hours allocated to smac")
@@ -49,7 +43,13 @@ parser.add_argument("--min_b", type=int, default=1000,
                     help="minimum budget for hyperband")
 parser.add_argument("--max_b", type=int, default=10000,
                     help="maximum budget for hyperband")
+parser.add_argument('--folds', type=int, default=3,
+                    help="number of validation folds.")
+parser.add_argument('--verbose', type=bool, default=True)
+parser.add_argument('--seed', type=int, default=208)
 args = parser.parse_args()
+
+random.seed(args.seed)
 
 # === Setup input/output directories
 root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
@@ -61,12 +61,12 @@ default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
 
 def vprint(mode, t):
     """
-    Print to stdout, only if in verbose mode.
+    Print to stdout, only if in args.verbose mode.
 
     Parameters
     ----------
     mode : bool
-        True if the verbose mode is on, False otherwise.
+        True if the args.verbose mode is on, False otherwise.
 
     Examples
     --------
@@ -117,9 +117,9 @@ def meta_training(agent, D_tr, env, encoder_config, epochs):
         The meta-trained agent.
     """
 
-    vprint(verbose, "[+]Start META-TRAINING phase...")
-    vprint(verbose, "meta-training datasets = ")
-    vprint(verbose, D_tr)
+    vprint(args.verbose, "[+]Start META-TRAINING phase...")
+    vprint(args.verbose, "meta-training datasets = ")
+    vprint(args.verbose, D_tr)
 
     # === Gather all meta_features and learning curves on meta-traning datasets
     validation_learning_curves = {}
@@ -137,8 +137,8 @@ def meta_training(agent, D_tr, env, encoder_config, epochs):
     algorithms_meta_features = env.algorithms_meta_features
 
     # === Start meta-traning the agent
-    vprint(verbose, datasets_meta_features)
-    vprint(verbose, algorithms_meta_features)
+    vprint(args.verbose, datasets_meta_features)
+    vprint(args.verbose, algorithms_meta_features)
     agent.meta_train(
         datasets_meta_features,
         algorithms_meta_features,
@@ -148,7 +148,7 @@ def meta_training(agent, D_tr, env, encoder_config, epochs):
         **encoder_config
     )
 
-    vprint(verbose, "[+]Finished META-TRAINING phase")
+    vprint(args.verbose, "[+]Finished META-TRAINING phase")
 
     return agent
 
@@ -165,8 +165,8 @@ def meta_testing(trained_agent, D_te, env):
         List of dataset indices used for meta-testing
     """
 
-    vprint(verbose, "\n[+]Start META-TESTING phase...")
-    vprint(verbose, "meta-testing datasets = " + str(D_te))
+    vprint(args.verbose, "\n[+]Start META-TESTING phase...")
+    vprint(args.verbose, "meta-testing datasets = " + str(D_te))
 
     for d_te in D_te:
         dataset_name = list_datasets[d_te]
@@ -178,14 +178,14 @@ def meta_testing(trained_agent, D_te, env):
         )
         trained_agent.reset(dataset_meta_features, algorithms_meta_features)
         vprint(
-            verbose,
+            args.verbose,
             "\n#===================== Start META-TESTING on dataset: "
             + dataset_name
             + " =====================#",
         )
-        vprint(verbose, "\n#---Dataset meta-features = " + str(dataset_meta_features))
+        vprint(args.verbose, "\n#---Dataset meta-features = " + str(dataset_meta_features))
         vprint(
-            verbose, "\n#---Algorithms meta-features = " + str(algorithms_meta_features)
+            args.verbose, "\n#---Algorithms meta-features = " + str(algorithms_meta_features)
         )
 
         # === Start meta-testing on a dataset step by step until the given total_time_budget is exhausted (done=True)
@@ -198,14 +198,14 @@ def meta_testing(trained_agent, D_te, env):
             # === Execute the action and observe
             observation, done = env.reveal(action)
 
-            vprint(verbose, "------------------")
-            vprint(verbose, "A_star = " + str(action[0]))
-            vprint(verbose, "A = " + str(action[1]))
-            vprint(verbose, "delta_t = " + str(action[2]))
-            vprint(verbose, "remaining_time_budget = " + str(env.remaining_time_budget))
-            vprint(verbose, "observation = " + str(observation))
-            vprint(verbose, "done=" + str(done))
-    vprint(verbose, "[+]Finished META-TESTING phase")
+            vprint(args.verbose, "------------------")
+            vprint(args.verbose, "A_star = " + str(action[0]))
+            vprint(args.verbose, "A = " + str(action[1]))
+            vprint(args.verbose, "delta_t = " + str(action[2]))
+            vprint(args.verbose, "remaining_time_budget = " + str(env.remaining_time_budget))
+            vprint(args.verbose, "observation = " + str(observation))
+            vprint(args.verbose, "done=" + str(done))
+    vprint(args.verbose, "[+]Finished META-TESTING phase")
 
 
 #################################################
@@ -215,7 +215,7 @@ def meta_testing(trained_agent, D_te, env):
 if __name__ == "__main__":
     # === Get input and output directories
     # if (len(argv) == 1):
-        # Use the default input and output directories if no arguments are provided
+    # Use the default input and output directories if no arguments are provided
     input_dir = default_input_dir
     output_dir = default_output_dir
     program_dir = default_program_dir
@@ -238,14 +238,14 @@ if __name__ == "__main__":
     #         input_dir, "algorithms_meta_features"
     #     )
 
-    vprint(verbose, "Using input_dir: " + input_dir)
-    vprint(verbose, "Using output_dir: " + output_dir)
-    vprint(verbose, "Using program_dir: " + program_dir)
-    vprint(verbose, "Using submission_dir: " + submission_dir)
-    vprint(verbose, "Using validation_data_dir: " + validation_data_dir)
-    vprint(verbose, "Using test_data_dir: " + test_data_dir)
-    vprint(verbose, "Using meta_features_dir: " + meta_features_dir)
-    vprint(verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir)
+    vprint(args.verbose, "Using input_dir: " + input_dir)
+    vprint(args.verbose, "Using output_dir: " + output_dir)
+    vprint(args.verbose, "Using program_dir: " + program_dir)
+    vprint(args.verbose, "Using submission_dir: " + submission_dir)
+    vprint(args.verbose, "Using validation_data_dir: " + validation_data_dir)
+    vprint(args.verbose, "Using test_data_dir: " + test_data_dir)
+    vprint(args.verbose, "Using meta_features_dir: " + meta_features_dir)
+    vprint(args.verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir)
 
     # === List of dataset names
     list_datasets = os.listdir(validation_data_dir)
@@ -268,7 +268,19 @@ if __name__ == "__main__":
     # === Clear old output
     clear_output_dir(output_dir)
 
-    # TODO SMAC HPO the Agent's meta training Autoencoder --------------------------------------------------------------
+    # make split available to all TAE instantiations (calls)
+    kf = KFold(n_splits=args.folds, shuffle=False)
+
+    # === Init a meta-learning environment
+    env = Meta_Learning_Environment(
+        validation_data_dir,
+        test_data_dir,
+        meta_features_dir,
+        algorithms_meta_features_dir,
+        output_dir,
+    )
+
+    # SMAC HPO the Agent's meta training Autoencoder --------------------------------------------------------------
 
     # (0) ConfigSpace ----------------------------------------------------------
     cs = ConfigurationSpace()
@@ -284,19 +296,6 @@ if __name__ == "__main__":
          UniformFloatHyperparameter('lossweight4', 0., 10., default_value=1.),
          UniformFloatHyperparameter(
              'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True)])
-
-    # make split available to all TAE instantiations (calls)
-    kf = KFold(n_splits=3, shuffle=False)
-
-    # === Init a meta-learning environment
-    env = Meta_Learning_Environment(
-        validation_data_dir,
-        test_data_dir,
-        meta_features_dir,
-        algorithms_meta_features_dir,
-        output_dir,
-    )
-
 
     # (1) TAE ------------------------------------------------------------------
     def tae(config, budget):
@@ -318,7 +317,7 @@ if __name__ == "__main__":
         holdout_losses_ranking = []
         # learned_rankings = []
         for D_tr, D_te in kf.split(list_datasets):
-            vprint(verbose, "\n********** Fold " + str(iteration) + " **********")
+            vprint(args.verbose, "\n********** Fold " + str(iteration) + " **********")
 
             # Init a new agent instance in each iteration
             agent = Agent(number_of_algorithms=len(list_algorithms), root_dir=root_dir, encoder=args.encoder)
@@ -393,7 +392,7 @@ if __name__ == "__main__":
         # Then you should handle runtime and memory yourself in the TA
         # 'cutoff': 3500,  # runtime limit for target algorithm
         # 'memory_limit': 3072,  # adapt this to reasonable value for your hardware
-        'output_dir': default_output_dir,
+        'output_dir': default_output_dir + args.encoder,
         'save_instantly': True
     })
 
@@ -431,3 +430,4 @@ if __name__ == "__main__":
         config=incumbent,
         budget=intensifier_kwargs['max_budget'],
         seed=0)[1]
+
