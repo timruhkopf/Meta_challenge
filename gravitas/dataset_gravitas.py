@@ -50,14 +50,14 @@ class Dataset_Gravity(Dataset):
         """
         # get the dataset & its performances
         D0 = self.datasets_meta_features[item]
-        A0 = self.algo_performances[item]
+        A0 = self.algo_thresholded_performances[item]
 
         # generate a random compare set
         # TODO move k to init
         # TODO seedit
         item_compareset = random.choices(list(set(range(self.nD)) - {item}), k=self.no_competitors)
         D1 = self.datasets_meta_features[item_compareset]
-        A1 = self.algo_performances[item_compareset]
+        A1 = self.algo_thresholded_performances[item_compareset]
 
         return D0, D1, A0, A1
 
@@ -265,10 +265,9 @@ class Dataset_Gravity(Dataset):
         for i_row, row in zip(ind, algo_performances):
             row[i_row] = 0
 
-        self.algo_performances = algo_performances
+        self.algo_thresholded_performances = algo_performances
 
     def plot_learning_curves(self, dataset_id=9):
-        
 
         for id, curve in self.raw_learning_curves[str(dataset_id)].items():
             plt.plot(curve.timestamps, curve.scores, marker='o', linestyle='dashed', label=id)
@@ -302,3 +301,5 @@ class Dataset_Gravity(Dataset):
         plt.title(title)
         plt.legend(loc='upper right')
         plt.show()
+
+
