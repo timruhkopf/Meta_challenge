@@ -4,19 +4,21 @@ import torch.distributions as td
 from tqdm import tqdm
 
 from typing import List
+import pdb
+
 
 from gravitas.base_encoder import BaseEncoder
 
-class AE(BaseEncoder):
+class VAE(BaseEncoder):
     # TODO allow for algo meta features
     def __init__(
         self,
         input_dim: int = 10,
         hidden_dims: List[int] = [8,4],
         embedding_dim: int = 2,
-        weights=[1.0, 1.0, 1.0, 1.0],
-        repellent_share=0.33,
-        n_algos=20,
+        weights: List[float]=[1.0, 1.0, 1.0, 1.0],
+        repellent_share: float =0.33,
+        n_algos: int =20,
         device=None,
     ):
         """
@@ -33,7 +35,7 @@ class AE(BaseEncoder):
         self.repellent_share = repellent_share
 
         # construct the autoencoder
-        self.latent_dim = embedding_dim
+        self.embedding_dim = embedding_dim
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
 
@@ -41,7 +43,7 @@ class AE(BaseEncoder):
 
         # initialize the algorithms in embedding space
         self.n_algos = n_algos
-        self.embedding_dim = self.latent_dim
+        self.embedding_dim = self.embedding_dim
         self.Z_algo = nn.Parameter(
             td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
         )
@@ -65,18 +67,25 @@ class AE(BaseEncoder):
             modules.append(nn.ReLU())
             input_dim = h_dim
 
-        modules.append(nn.Linear(input_dim, self.latent_dim))
-        modules.append(nn.BatchNorm1d(self.latent_dim))
-        modules.append(nn.Dropout(p=0.5))
-        modules.append(nn.ReLU())
-
+        
         self.encoder = torch.nn.Sequential(*modules)
+
+        # Mean and std_dev for the latent distribution
+        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
+        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
+
+        # modules.append(nn.Linear(input_dim, self.latent_dim))
+        # modules.append(nn.BatchNorm1d(self.latent_dim))
+        # modules.append(nn.Dropout(p=0.5))
+        # modules.append(nn.ReLU())
+
+        
 
         # Make the decoder
         modules = []
 
         hidden_dims.reverse()
-        input_dim = self.latent_dim
+        input_dim = self.embedding_dim
 
         for h_dim in hidden_dims:
             modules.append(nn.Linear(input_dim, h_dim))
@@ -86,13 +95,41 @@ class AE(BaseEncoder):
             input_dim = h_dim
 
         modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())  #input_dim, self.input_dim
+        modules.append(nn.Sigmoid()) 
 
 
         self.decoder = nn.Sequential(*modules)
 
+    
+    def reparameterize(
+                    self, 
+                    mu: torch.Tensor, 
+                    logvar: torch.Tensor) -> torch.Tensor:
+        """
+        Reparameterization trick to sample from N(mu, var)
+        """
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        
+        return eps * std + mu
+    
     def encode(self, x):
-        return self.encoder(x)
+        
+        # Forward pass the input through the network
+        result = self.encoder(x)
+
+        # Get the mean and standard deviation from the output 
+        mu = self.fc_mu(result)
+        log_var = self.fc_var(result)
+
+        # TODO: Plot latent distributions
+
+
+
+        # Sample a latent vector using the reparameterization trick
+        z = self.reparameterize(mu, log_var)
+
+        return z        
 
     def decode(self, x):
         return self.decoder(x)
@@ -261,3 +298,4 @@ class AE(BaseEncoder):
         self.train()
 
         return top_algo
+

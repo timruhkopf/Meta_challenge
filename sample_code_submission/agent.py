@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 # TODO Reproducability: Setting seeds!
 
+
 def ecdf(data):
     """ Compute the empirical distribution function """
     x = np.sort(data)
@@ -14,7 +15,7 @@ def ecdf(data):
     return x, y
 
 
-class Agent():
+class Agent:
     def __init__(self, number_of_algorithms):
         """
         Initialize the agent
@@ -86,8 +87,13 @@ class Agent():
         self.algo_performance = {k: 0.0 for k in algorithms_meta_features.keys()}
         self.trajectory = []
 
-    def meta_train(self, dataset_meta_features, algorithms_meta_features, validation_learning_curves,
-                   test_learning_curves):
+    def meta_train(
+        self,
+        dataset_meta_features,
+        algorithms_meta_features,
+        validation_learning_curves,
+        test_learning_curves,
+    ):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -130,21 +136,23 @@ class Agent():
         # algorithm characteristics for delta_t estimation
         # these need to be conditioned on the dataset clusters to estimate how much budget we
         # should invest to get an informative point
-        algo_id = '9'
+        algo_id = "9"
         # [curve.convergence90_step for curve in self.algo_valid_learning_curves[algo_id].values()]
         # unconditional distribution (general algo speed):
-        unconditional_dist_temp = [curve.convergence90_time for curve in
-                                   self.algo_valid_learning_curves[algo_id].values()]
+        unconditional_dist_temp = [
+            curve.convergence90_time
+            for curve in self.algo_valid_learning_curves[algo_id].values()
+        ]
         # plt.hist(unconditional_dist_temp)
         # plt.show()
 
         x, y = ecdf(unconditional_dist_temp[20:])
-        plt.scatter(x=x, y=y);
-        plt.xlabel('x', fontsize=16)
-        plt.ylabel('y', fontsize=16)
+        plt.scatter(x=x, y=y)
+        plt.xlabel("x", fontsize=16)
+        plt.ylabel("y", fontsize=16)
         plt.show()
 
-        k = '9'  # fixme actual suggestion & move to suggestion
+        k = "9"  # fixme actual suggestion & move to suggestion
         lower_bound = y[np.argmin(x[::-1] >= self.algo_time_spent[k])]
 
         # inverse sampling with preference for smaller values?
@@ -157,7 +165,7 @@ class Agent():
         d_finalist = {}
         for d, algolist in validation_learning_curves.items():
             incumbent_algo = None
-            incumbent_score = 0.
+            incumbent_score = 0.0
             for a, curve in algolist.items():
                 score = curve.scores[-1]
                 if score >= incumbent_score:
@@ -171,7 +179,9 @@ class Agent():
             for a, curve in algolist.items():
                 d_final_performances[d].append((a, curve.scores[-1]))
 
-            d_final_performances[d] = sorted(d_final_performances[d], key=lambda x: -x[1])
+            d_final_performances[d] = sorted(
+                d_final_performances[d], key=lambda x: -x[1]
+            )
 
         # ToDo Find set of best performing algorithms for each dataset using multiple comparisons
         # Friedman test to check if there is a significant difference between candidate
@@ -181,15 +191,21 @@ class Agent():
         # ToDo Find k-best ranking algorithms for each dataset
         # consider: rather than k, find those that are top performing, but are insignificantly different?
         k = 3
-        k_highest_performing_on_d = {d: ranklist[:k] for d, ranklist in d_final_performances.items()}
+        k_highest_performing_on_d = {
+            d: ranklist[:k] for d, ranklist in d_final_performances.items()
+        }
 
         # exploratory: investingate the similarity in terms of inductive bias
-        peak = pd.DataFrame(np.zeros((self.nA, self.nD)),
-                            columns=sorted(dataset_meta_features.keys(), key=lambda x: int(x)),
-                            index=sorted(algorithms_meta_features.keys(), key=lambda x: int(x)))
-        peak_d = pd.DataFrame(np.zeros((self.nA, self.nD)),
-                              columns=sorted(dataset_meta_features.keys(), key=lambda x: int(x)),
-                              index=sorted(algorithms_meta_features.keys(), key=lambda x: int(x)))
+        peak = pd.DataFrame(
+            np.zeros((self.nA, self.nD)),
+            columns=sorted(dataset_meta_features.keys(), key=lambda x: int(x)),
+            index=sorted(algorithms_meta_features.keys(), key=lambda x: int(x)),
+        )
+        peak_d = pd.DataFrame(
+            np.zeros((self.nA, self.nD)),
+            columns=sorted(dataset_meta_features.keys(), key=lambda x: int(x)),
+            index=sorted(algorithms_meta_features.keys(), key=lambda x: int(x)),
+        )
         for d, ranks in k_highest_performing_on_d.items():
             for tup in ranks:
                 peak[d][tup[0]] += 1
@@ -199,11 +215,12 @@ class Agent():
         # The diagonal represents the amount of times the algo was in the top-k performing,
         # indicating how much of a "hammer" the algorithm is
         # off_diagonal elements show how often
-        algo_corr = (peak.__array__() @ peak.__array__().transpose())
+        algo_corr = peak.__array__() @ peak.__array__().transpose()
 
         # clustering the datasets based on top-k algorithm performances
         from sklearn.cluster import spectral_clustering
-        dataset_corr = (peak_d.__array__().transpose() @ peak_d.__array__())
+
+        dataset_corr = peak_d.__array__().transpose() @ peak_d.__array__()
         label = spectral_clustering(dataset_corr, n_clusters=4, eigen_solver="arpack")
 
         # todo clustering to find similarities between datasets / algorithms respectively?
@@ -260,7 +277,7 @@ class Agent():
         # if a) we might have achieved it already and b) if we haven't seen new info - we should allocate
         # more budget until we see a new observation which is in the vacinity of the allegedly
         # expected performance.
-        
+
         # TODO currently max available budget:
         # remaining time = self.dataset_meta_features['total_budget'] - consumed_time
 
@@ -270,8 +287,13 @@ class Agent():
 
         return (A_star, A, delta_t)
 
-    def _exploratory_meta_feature_analysis(self, dataset_meta_features, algorithms_meta_features,
-                                           validation_learning_curves, test_learning_curves):
+    def _exploratory_meta_feature_analysis(
+        self,
+        dataset_meta_features,
+        algorithms_meta_features,
+        validation_learning_curves,
+        test_learning_curves,
+    ):
         # FIXME: remove me: exploratory analysis of dataset meta features
 
         # (0) dataset_meta_features ------------------------------------------------
@@ -281,11 +303,22 @@ class Agent():
         import matplotlib.pyplot as plt
         import scipy
 
-        df_meta_features = pd.DataFrame(list(dataset_meta_features.values()), index=dataset_meta_features.keys())
-        string_typed_variables = ['usage', 'name', 'task', 'target_type', 'feat_type', 'metric']
+        df_meta_features = pd.DataFrame(
+            list(dataset_meta_features.values()), index=dataset_meta_features.keys()
+        )
+        string_typed_variables = [
+            "usage",
+            "name",
+            "task",
+            "target_type",
+            "feat_type",
+            "metric",
+        ]
         df_meta_features[string_typed_variables].describe()
 
-        other_columns = list(set(df_meta_features.columns) - set(string_typed_variables))
+        other_columns = list(
+            set(df_meta_features.columns) - set(string_typed_variables)
+        )
         df_meta_features[other_columns] = df_meta_features[other_columns].astype(float)
         df_meta_features[other_columns].describe()
 
@@ -293,21 +326,30 @@ class Agent():
         plt.show()
 
         # (1) algorithm_meta_features ----------------------------------------------
-        df_algo_meta_features = pd.DataFrame(list(algorithms_meta_features.values()),
-                                             index=algorithms_meta_features.keys())
-        df_algo_meta_features['meta_feature_1'] = df_algo_meta_features['meta_feature_1'].astype(float)
+        df_algo_meta_features = pd.DataFrame(
+            list(algorithms_meta_features.values()),
+            index=algorithms_meta_features.keys(),
+        )
+        df_algo_meta_features["meta_feature_1"] = df_algo_meta_features[
+            "meta_feature_1"
+        ].astype(float)
         # exactly the same overall distribution if grouped by the binary meta feature
-        df_algo_meta_features.groupby('meta_feature_0').describe()
+        df_algo_meta_features.groupby("meta_feature_0").describe()
 
         # (2) validation / test_learning_curves
         def plot_curves(dataset):
             for ds_id in dataset.keys():
                 for algo_id, curve in dataset[ds_id].items():
-                    plt.plot(curve.timestamps, curve.scores,
-                             linestyle='--', marker='o', label=algo_id)
+                    plt.plot(
+                        curve.timestamps,
+                        curve.scores,
+                        linestyle="--",
+                        marker="o",
+                        label=algo_id,
+                    )
 
-                plt.title('Dataset {}'.format(ds_id))
-                plt.legend(loc='upper right')
+                plt.title("Dataset {}".format(ds_id))
+                plt.legend(loc="upper right")
                 plt.show()
 
         plot_curves(validation_learning_curves)
@@ -353,8 +395,13 @@ class Agent():
         dataset = validation_learning_curves
         for ds_id in dataset.keys():
             for algo_id, curve in dataset[ds_id].items():
-                plt.plot(curve.timestamps, curve.scores,
-                         linestyle='--', marker='o', label=algo_id)
+                plt.plot(
+                    curve.timestamps,
+                    curve.scores,
+                    linestyle="--",
+                    marker="o",
+                    label=algo_id,
+                )
 
                 def func(x, a, b, c):
                     return a * np.log(b * x) + c
@@ -364,13 +411,21 @@ class Agent():
 
                 popt, pcov = scipy.optimize.curve_fit(func, x, y)
 
-                plt.plot(curve.timestamps, func(curve.timestamps, *popt),
-                         linestyle='-', marker='x', label=algo_id)
+                plt.plot(
+                    curve.timestamps,
+                    func(curve.timestamps, *popt),
+                    linestyle="-",
+                    marker="x",
+                    label=algo_id,
+                )
 
             plt.show()
 
         # alorithm on the respective datasets
-        algo_datasets = {a: {d: [] for d in dataset_meta_features.keys()} for a in algorithms_meta_features.keys()}
+        algo_datasets = {
+            a: {d: [] for d in dataset_meta_features.keys()}
+            for a in algorithms_meta_features.keys()
+        }
         dataset = test_learning_curves
         for ds_id in dataset.keys():
             for algo_id, curve in dataset[ds_id].items():
@@ -379,28 +434,38 @@ class Agent():
         # plot the algo for all datasets
         for algo_id, datasets in algo_datasets.items():
             for ds_id, curve in datasets.items():
-                plt.plot(curve.timestamps, curve.scores,
-                         linestyle='--', marker='o', label=algo_id)
+                plt.plot(
+                    curve.timestamps,
+                    curve.scores,
+                    linestyle="--",
+                    marker="o",
+                    label=algo_id,
+                )
 
-            plt.title('Algorithm {}'.format(ds_id))
-            plt.legend(loc='upper right')
+            plt.title("Algorithm {}".format(ds_id))
+            plt.legend(loc="upper right")
             plt.show()
 
         # algo meta features are unique identifiers: and useless for this challenge
         df_algo_meta_features = pd.DataFrame(
             list(algorithms_meta_features.values()),
-            index=algorithms_meta_features.keys())
+            index=algorithms_meta_features.keys(),
+        )
 
-        sns.set(style='ticks', context='talk')
+        sns.set(style="ticks", context="talk")
 
-        sns.swarmplot(x='meta_feature_0', y='meta_feature_1', data=df_algo_meta_features)
+        sns.swarmplot(
+            x="meta_feature_0", y="meta_feature_1", data=df_algo_meta_features
+        )
         sns.despine()
         plt.show()
 
-        sorted([(v['meta_feature_0'], v['meta_feature_1']) for k, v in algorithms_meta_features.items()])
+        sorted(
+            [
+                (v["meta_feature_0"], v["meta_feature_1"])
+                for k, v in algorithms_meta_features.items()
+            ]
+        )
         # [('0', '0.1'), ('0', '0.2'), ('0', '0.3'), ('0', '0.4'), ('0', '0.5'), ('0', '0.6'), ('0', '0.7'), ('0', '0.8'),
         #  ('0', '0.9'), ('0', '1.0'), ('1', '0.1'), ('1', '0.2'), ('1', '0.3'), ('1', '0.4'), ('1', '0.5'), ('1', '0.6'),
         #  ('1', '0.7'), ('1', '0.8'), ('1', '0.9'), ('1', '1.0')]
-
-
-

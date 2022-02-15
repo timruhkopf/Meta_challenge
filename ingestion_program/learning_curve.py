@@ -4,6 +4,7 @@ import json
 # === Verbose mode
 verbose = True
 
+import pdb
 
 def vprint(mode, t):
     """
@@ -23,11 +24,11 @@ def vprint(mode, t):
 
     """
 
-    if (mode):
+    if mode:
         print(str(t))
 
 
-class Learning_Curve():
+class Learning_Curve:
     """
     A learning curve of an algorithm on a dataset
     """
@@ -75,18 +76,21 @@ class Learning_Curve():
             with open(self.file_path, "r") as data:
                 lines = data.readlines()
                 dictionary = {line.split(":")[0]: line.split(":")[1] for line in lines}
-                timestamps = np.around(json.loads(dictionary['times']), decimals=2)
-                scores = np.around(json.loads(dictionary['scores']), decimals=2)
+                timestamps = np.around(json.loads(dictionary["times"]), decimals=2)
+                scores = np.around(json.loads(dictionary["scores"]), decimals=2)
 
         # If the data is missing, set timestamp = 0 and score = 0 as default
         except FileNotFoundError:
             scores.append(0.0)
             timestamps.append(0.0)
-            dataset_name = self.file_path.split('/')[7]
-            algo_name = self.file_path.split('/')[8]
-            vprint(verbose,
-                   "*Warning* Learning curve of algorithm \"{}\" on dataset \"{}\" is missing, replaced by 0 as default!".format(
-                       algo_name, dataset_name))
+            dataset_name = self.file_path.split("/")[7]
+            algo_name = self.file_path.split("/")[8]
+            vprint(
+                verbose,
+                '*Warning* Learning curve of algorithm "{}" on dataset "{}" is missing, replaced by 0 as default!'.format(
+                    algo_name, dataset_name
+                ),
+            )
 
         # vprint(verbose, "timestamps = " + str(timestamps))
         # vprint(verbose, "scores = " + str(scores))
@@ -120,16 +124,31 @@ class Learning_Curve():
 
         """
 
+        # print(f'Entering Learning curve function')
+        # print(f'C = {C}')
+        # print(f'delta_t = {delta_t}')
+
+        
+
         temp_time = C + delta_t
+
+        # print(f'temp_time = {temp_time}')
+
 
         for i in range(len(self.timestamps)):
             if temp_time < self.timestamps[i]:
-                if i == 0:  # if delta_t is not enough to get the first point, the agent wasted it for nothing!
+                if (i == 0):  # if delta_t is not enough to get the first point, the agent wasted it for nothing!
                     score, timestamp = 0.0, 0.0
+                
                 else:  # return the last achievable point
                     score, timestamp = self.scores[i - 1], self.timestamps[i - 1]
+                
+           
                 return score, timestamp
 
         # If the last point on the learning curve is already reached, return it
         score, timestamp = self.scores[-1], self.timestamps[-1]
+        
+       
+        
         return score, timestamp
