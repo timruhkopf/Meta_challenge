@@ -176,9 +176,8 @@ class Agent_Gravitas:
         :param embedding_dim:
         :param weights:
         :param repellent_share:
-        :param training: str. 'schedual': uses model.train_schedual
+        :param training: str. 'schedule': uses model.train_schedual
         'gravity' uses model.train_gravity
-
 
         Examples:
         To access the meta-features of a specific dataset:
@@ -246,7 +245,7 @@ class Agent_Gravitas:
             tracking, losses, test_losses = self.model.train_gravity(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs], lr=lr)
 
-        elif training == 'schedual':
+        elif training == 'schedule':
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
