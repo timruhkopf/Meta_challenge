@@ -2,6 +2,8 @@ import os
 import json
 import pandas as pd
 from itertools import chain
+from ingestion_program.ingestion_smac import tae, kf, env  # just for explicitness
+
 
 run_id = '1608637542_vae'
 
@@ -27,13 +29,15 @@ run_df['status'] = run_df['status'].apply(lambda x: x[0])
 config_df.index = config_df.index.astype(int)
 run_config_df = pd.merge(config_df, run_df, left_index=True, right_on='config_id')
 
-
 # Find the not failed configs on highest fidelity.
 final_fidelity = run_config_df[(run_df['budget'] == 10000) & (run_df['status'] == 'StatusType.SUCCESS')]
 final_fidelity = final_fidelity[['cost', 'budget', 'status', *config_df.columns]].sort_values('cost')
 
+# Write out frame to csv.
+# run_config_df.to_csv(f'{root_dir}/output/run_{run_id}/run_{run_id}.csv')
 
-run_config_df.to_csv(f'{root_dir}/output/run_{run_id}/run_{run_id}.csv')
 
+cfg = configs['1']  # define the
 
-
+# TODO create an ID, with which the models are plotted and saved.
+tae(cfg, budget=100)
