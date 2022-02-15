@@ -11,7 +11,7 @@ from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
 
 
-def check_sparsity(representation, title, epsilon=0.01):
+def check_diversity(representation, title, epsilon=0.01):
     """
 
     :param representation: ndarray.
@@ -360,8 +360,8 @@ class Agent_Gravitas:
         d_test = d_test.cpu().detach().numpy()
         z_algo = self.model.Z_algo.cpu().detach().numpy()
 
-        check_sparsity(d_test, 'Dataset')
-        check_sparsity(z_algo, 'Algorithm')
+        check_diversity(d_test, 'Dataset')
+        check_diversity(z_algo, 'Algorithm')
 
         if self.model.embedding_dim == 2:
             if normalize:
