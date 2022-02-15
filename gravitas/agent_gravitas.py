@@ -3,11 +3,27 @@ import torch
 from torch.utils.data import DataLoader
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from gravitas.autoencoder import AE
 from gravitas.base_encoder import BaseEncoder
 from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
+
+
+def check_sparsity(representation, title):
+    """
+
+    :param representation: ndarray.
+    :param title: name of the matrix
+    :raises: Warning if representation is not diverse
+    """
+    # Check for (naive) representation collapse by checking sparsity after
+    # translation by 90% quantile
+    translated = representation - np.quantile(representation, 0.9, axis=0)
+    sparsity = (translated == 0).sum() / np.product(representation.shape)
+    if sparsity >= 0.95:
+        raise Warning(f'The {title} representation is not diverse.')
 
 
 class Agent_Gravitas:
@@ -224,43 +240,10 @@ class Agent_Gravitas:
             self.valid_dataloader, self.test_dataloader, epochs=epochs, lr=lr)
 
         self.plot_encoder_training(losses, losses_pre)
-
-        if self.model.embedding_dim == 2:
-            self.plot_current_2dembedding()
+        self.plot_current_embedding()
 
         # TODO: Add Bandit exploration
         print()
-
-    def plot_encoder_training(self, losses, losses_pre):
-        # plot pretrain loss at each epoch.
-        plt.figure()
-        plt.plot(torch.tensor(losses).numpy(), label="gravity")
-        plt.plot(torch.tensor(losses_pre).numpy(), label="pre")
-        plt.legend()
-        plt.savefig(
-            f'{self.root_dir}/output/{self.encoder}_training_loss.png',
-        )
-        # len(tracking_pre)
-        # len(losses_pre)
-
-    def plot_current_2dembedding(self):
-        # plot the dataset-algo embeddings 2D
-        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
-        d_test = self.model.encode(D_test)
-
-        d_test = d_test.cpu().detach().numpy()
-        z_algo = self.model.Z_algo.cpu().detach().numpy()
-        d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
-        # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
-        z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0)  # normalization based on datasets
-
-        plt.figure()
-        plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
-        plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
-        plt.legend()
-        plt.savefig(
-            f'{self.root_dir}/output/{self.encoder}_training_embeddings.png',
-        )
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
@@ -348,3 +331,97 @@ class Agent_Gravitas:
 
         # TODO suggest based on bandit policy
         return A_star, A, delta_t
+
+    def plot_encoder_training(self, losses, losses_pre):
+        # plot pretrain loss at each epoch.
+        plt.figure()
+        plt.plot(torch.tensor(losses).numpy(), label="gravity")
+        plt.plot(torch.tensor(losses_pre).numpy(), label="pre")
+        plt.legend()
+        plt.savefig(
+            f'{self.root_dir}/output/{self.encoder}_training_loss.png',
+        )
+        # len(tracking_pre)
+        # len(losses_pre)
+
+    def plot_current_embedding(self, normalize=False):
+        """
+        Plot the current embedding (both dataset & algorithms) based on the validation dataset.
+        In the case of self.model.embedding_dim > 2, a projection is used.
+        :param normalize: bool. Whether or not the 2D embeddings should be normalized
+        using the dataset's mean and standard deviation.
+
+        """
+        # plot the dataset-algo embeddings 2D
+        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
+        d_test = self.model.encode(D_test)
+
+        d_test = d_test.cpu().detach().numpy()
+        z_algo = self.model.Z_algo.cpu().detach().numpy()
+
+        check_sparsity(d_test, 'Dataset')
+        check_sparsity(z_algo, 'Algorithm')
+
+        if self.model.embedding_dim == 2:
+            if normalize:
+                d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
+                # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
+                z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0)  # normalization based on datasets
+
+            self._plot_embedding2d(d_test, z_algo)
+            return None
+
+        else:
+            self._plot_embedding_projection(d_test, z_algo)
+
+    def _plot_embedding2d(self, d_test, z_algo):
+
+        plt.figure()
+        plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
+        plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
+        plt.legend()
+        plt.savefig(
+            f'{self.root_dir}/output/{self.encoder}_training_embeddings.png',
+        )
+
+    def _plot_embedding_projection(self, d_test, z_algo, projection='umap'):
+        """
+        higher dimensional embeddings must be projected before being plotted.
+        To do so, the datasets are used to learn a projection, in which the algorithm
+        embeddings are projected. This way, this visualization can be used to see whether or not
+        the learned embedding is a sensible projection.
+        """
+
+        if projection == 'umap':
+            import umap
+
+            trans = umap.UMAP(densmap=True).fit(d_test)
+
+            # plot the current embedding
+            # TODO add colouring c?
+            plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5, cmap='Spectral')  # c=y_train,
+            plt.title('Embedding of the training set by densMAP')
+
+            # embedd the z_algos accordingly:
+            # Consider: This embedding may not be sensible for z_algo!
+            test_embedding = trans.fit_transform(z_algo)
+            plt.scatter(test_embedding[:, 0], test_embedding[:, 1], s=5, cmap='Spectral')
+
+            plt.savefig(
+                f'{self.root_dir}/output/{self.encoder}_embedding_umap.png',
+            )
+
+        elif projection == 'pca':
+            from sklearn.decomposition import PCA
+
+            pca = PCA(n_components=2)
+            d_test_pca = pca.fit_transform(d_test)
+            z_algo_pca = pca.transform(z_algo)
+
+            plt.scatter(d_test_pca[:, 0], d_test_pca[:, 1], s=5, cmap='Spectral')  # c=y_train,
+            plt.scatter(z_algo_pca[:, 0], z_algo_pca[:, 1], s=5, cmap='Spectral')
+            plt.title('Embedding of the training set by densMAP')
+
+            plt.savefig(
+                f'{self.root_dir}/output/{self.encoder}_embedding_pca.png',
+            )
