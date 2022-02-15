@@ -46,20 +46,6 @@ class BaseEncoder(nn.Module):
         pass
 
     @abstractmethod
-    def pretrain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor] :
-        """
-        Pretrain the network
-        """
-        pass
-
-    @abstractmethod
-    def trainer(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Main train function
-        """
-        pass
-
-    @abstractmethod
     def predict_algorithms(self) -> torch.Tensor:
         """
         Predict the algorithms
