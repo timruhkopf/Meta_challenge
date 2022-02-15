@@ -5,9 +5,6 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
 
-from gravitas.autoencoder import AE
-from gravitas.base_encoder import BaseEncoder
-from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
 
 
