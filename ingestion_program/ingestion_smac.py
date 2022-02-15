@@ -43,7 +43,7 @@ parser.add_argument("--min_b", type=int, default=1000,
                     help="minimum budget for hyperband")
 parser.add_argument("--max_b", type=int, default=10000,
                     help="maximum budget for hyperband")
-parser.add_argument('--folds', type=int, default=3,
+parser.add_argument('--folds', type=int, default=2,
                     help="number of validation folds.")
 parser.add_argument('--verbose', type=bool, default=True)
 parser.add_argument('--seed', type=int, default=208)
@@ -212,74 +212,158 @@ def meta_testing(trained_agent, D_te, env):
 ################# MAIN FUNCTION #################
 #################################################
 
-if __name__ == "__main__":
-    # === Get input and output directories
-    # if (len(argv) == 1):
-    # Use the default input and output directories if no arguments are provided
-    input_dir = default_input_dir
-    output_dir = default_output_dir
-    program_dir = default_program_dir
-    submission_dir = default_submission_dir
-    validation_data_dir = os.path.join(input_dir, "valid")
-    test_data_dir = os.path.join(input_dir, "test")
-    meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
-    algorithms_meta_features_dir = os.path.join(
-        input_dir, "algorithms_meta_features"
-    )
-    # else:
-    #     input_dir = os.path.abspath(argv[1])
-    #     output_dir = os.path.abspath(argv[2])
-    #     program_dir = os.path.abspath(argv[3])
-    #     submission_dir = os.path.abspath(argv[4])
-    #     validation_data_dir = os.path.join(input_dir, "valid")
-    #     test_data_dir = os.path.join(input_dir, "test")
-    #     meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
-    #     algorithms_meta_features_dir = os.path.join(
-    #         input_dir, "algorithms_meta_features"
-    #     )
+# === Get input and output directories
+# if (len(argv) == 1):
+# Use the default input and output directories if no arguments are provided
+input_dir = default_input_dir
+output_dir = default_output_dir
+program_dir = default_program_dir
+submission_dir = default_submission_dir
+validation_data_dir = os.path.join(input_dir, "valid")
+test_data_dir = os.path.join(input_dir, "test")
+meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
+algorithms_meta_features_dir = os.path.join(
+    input_dir, "algorithms_meta_features"
+)
+# else:
+#     input_dir = os.path.abspath(argv[1])
+#     output_dir = os.path.abspath(argv[2])
+#     program_dir = os.path.abspath(argv[3])
+#     submission_dir = os.path.abspath(argv[4])
+#     validation_data_dir = os.path.join(input_dir, "valid")
+#     test_data_dir = os.path.join(input_dir, "test")
+#     meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
+#     algorithms_meta_features_dir = os.path.join(
+#         input_dir, "algorithms_meta_features"
+#     )
 
-    vprint(args.verbose, "Using input_dir: " + input_dir)
-    vprint(args.verbose, "Using output_dir: " + output_dir)
-    vprint(args.verbose, "Using program_dir: " + program_dir)
-    vprint(args.verbose, "Using submission_dir: " + submission_dir)
-    vprint(args.verbose, "Using validation_data_dir: " + validation_data_dir)
-    vprint(args.verbose, "Using test_data_dir: " + test_data_dir)
-    vprint(args.verbose, "Using meta_features_dir: " + meta_features_dir)
-    vprint(args.verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir)
+vprint(args.verbose, "Using input_dir: " + input_dir)
+vprint(args.verbose, "Using output_dir: " + output_dir)
+vprint(args.verbose, "Using program_dir: " + program_dir)
+vprint(args.verbose, "Using submission_dir: " + submission_dir)
+vprint(args.verbose, "Using validation_data_dir: " + validation_data_dir)
+vprint(args.verbose, "Using test_data_dir: " + test_data_dir)
+vprint(args.verbose, "Using meta_features_dir: " + meta_features_dir)
+vprint(args.verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir)
 
-    # === List of dataset names
-    list_datasets = os.listdir(validation_data_dir)
-    if ".DS_Store" in list_datasets:
-        list_datasets.remove(".DS_Store")
-    list_datasets.sort()
+# === List of dataset names
+list_datasets = os.listdir(validation_data_dir)
+if ".DS_Store" in list_datasets:
+    list_datasets.remove(".DS_Store")
+list_datasets.sort()
 
-    # === List of algorithms
-    list_algorithms = os.listdir(os.path.join(validation_data_dir, list_datasets[0]))
-    if ".DS_Store" in list_algorithms:
-        list_algorithms.remove(".DS_Store")
-    list_algorithms.sort()
+# === List of algorithms
+list_algorithms = os.listdir(os.path.join(validation_data_dir, list_datasets[0]))
+if ".DS_Store" in list_algorithms:
+    list_algorithms.remove(".DS_Store")
+list_algorithms.sort()
 
-    # === Import the agent submitted by the participant ------------------------
-    path.append(submission_dir)
-    from gravitas.agent_gravitas import (
-        Agent_Gravitas as Agent,
-    )  # fixme: for debugging: replace with my own Agent script
+# === Import the agent submitted by the participant ------------------------
+path.append(submission_dir)
+from gravitas.agent_gravitas import (
+    Agent_Gravitas as Agent,
+)  # fixme: for debugging: replace with my own Agent script
 
-    # === Clear old output
-    clear_output_dir(output_dir)
+# === Clear old output
+# clear_output_dir(output_dir)
 
-    # make split available to all TAE instantiations (calls)
-    kf = KFold(n_splits=args.folds, shuffle=False)
+# make split available to all TAE instantiations (calls)
+kf = KFold(n_splits=args.folds, shuffle=False)
 
-    # === Init a meta-learning environment
-    env = Meta_Learning_Environment(
-        validation_data_dir,
-        test_data_dir,
-        meta_features_dir,
-        algorithms_meta_features_dir,
-        output_dir,
-    )
+# === Init a meta-learning environment
+env = Meta_Learning_Environment(
+    validation_data_dir,
+    test_data_dir,
+    meta_features_dir,
+    algorithms_meta_features_dir,
+    output_dir,
+)
 
+
+def tae(config, budget):
+    """Gravity Autoencoder loss NDCG (@K) averaged over k folds"""
+    budget = int(budget)
+
+    # parse the config
+    weights = [config['lossweight' + str(w)] for w in range(1, 5)]
+    config = {**config}
+    config['weights'] = weights
+    for w in range(1, 5):
+        config.pop('lossweight' + str(w))
+
+    config['lr'] = config.pop('learning_rate_init')
+
+    # === Start iterating, each iteration involves a meta-training step and a meta-testing step
+    iteration = 0
+    holdout_losses_ndcg = []
+    holdout_losses_ranking = []
+    # learned_rankings = []
+    for D_tr, D_te in kf.split(list_datasets):
+        vprint(args.verbose, "\n********** Fold " + str(iteration) + " **********")
+
+        # Init a new agent instance in each iteration
+        agent = Agent(number_of_algorithms=len(list_algorithms), root_dir=root_dir, encoder=args.encoder)
+
+        # META-TRAINING-----------
+        trained_agent = meta_training(agent, D_tr, env, encoder_config=config, epochs=budget)
+
+        # precompute ground trugh labels:
+        # get ground truth label
+        meta_test_dataset = [list_datasets[d] for d in D_te]
+        meta_features = {k: env.meta_features[k] for k in meta_test_dataset}
+        learning_curves = {k: env.test_learning_curves[k] for k in meta_test_dataset}
+        meta_test_dataset = Dataset_Gravity(meta_features, learning_curves, env.algorithms_meta_features)
+
+        ground_truth_rankings = np.argsort(meta_test_dataset.algo_final_performances, axis=1)
+
+        # META-TESTING-------------
+        # meta_testing(trained_agent, D_te)  # <<<--- intercepting the results on the heldout fold
+        holdout_rankings = []
+        holdout_rankings_truth = []
+        holdout_embedding_distances = []  # distances of algorithms to the dataset. (base for ranking vector)
+        for d_te in D_te:
+            dataset_name = list_datasets[d_te]
+            meta_features = env.meta_features[dataset_name]
+
+            # === Reset both the environment and the trained_agent for a new task
+            dataset_meta_features, algorithms_meta_features = env.reset(dataset_name=dataset_name)
+            # agent.reset will already trigger a prediction on the new dataset
+            trained_agent.reset(dataset_meta_features, algorithms_meta_features)
+            holdout_rankings.append(trained_agent.learned_rankings)
+            holdout_rankings_truth.append(ground_truth_rankings.loc[int(dataset_name), :])
+
+            # get the embedding distances (score for ndcg loss)
+            d_index = meta_test_dataset.datasets_meta_features_df.index.tolist().index(int(dataset_name))
+            d_new = meta_test_dataset.datasets_meta_features[d_index].reshape(1, -1)
+            d_new = d_new.to(agent.model.device)
+            agent.model.eval()
+            Z_data = agent.model.encode(d_new)
+            dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
+            holdout_embedding_distances.append(torch.topk(dist_mat, largest=False, k=20)[1][0])
+
+        holdout_rankings_truth = np.array(holdout_rankings)
+        holdout_embedding_distances = torch.stack(holdout_embedding_distances)
+
+        # compute the fold's loss
+        # Fixme: choose a K?? NDCG@K loss!
+        with torch.no_grad():
+            holdout_embedding_distances = holdout_embedding_distances.cpu()
+
+            holdout_losses_ndcg.append(
+                ndcg_score(holdout_rankings_truth, holdout_embedding_distances.numpy(),
+                           k=10, sample_weight=None, ignore_ties=False))
+
+        # todo ranking loss: requires to collect the learned rankings per dataset_new
+        # holdout_losses_ranking.append(
+        #     label_ranking_loss(holdout_rankings_truth, trained_agent.learned_rankings))
+
+        iteration += 1
+    print()
+    # average across holdout_scores
+    return 1 - (sum(holdout_losses_ndcg) / len(holdout_losses_ndcg))  # no_splits=6
+
+
+if __name__ == '__main__':
     # SMAC HPO the Agent's meta training Autoencoder --------------------------------------------------------------
 
     # (0) ConfigSpace ----------------------------------------------------------
@@ -297,89 +381,7 @@ if __name__ == "__main__":
          UniformFloatHyperparameter(
              'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True)])
 
-    # (1) TAE ------------------------------------------------------------------
-    def tae(config, budget):
-        """Gravity Autoencoder loss NDCG (@K) averaged over k folds"""
-        budget = int(budget)
-
-        # parse the config
-        weights = [config['lossweight' + str(w)] for w in range(1, 5)]
-        config = {**config}
-        config['weights'] = weights
-        for w in range(1, 5):
-            config.pop('lossweight' + str(w))
-
-        config['lr'] = config.pop('learning_rate_init')
-
-        # === Start iterating, each iteration involves a meta-training step and a meta-testing step
-        iteration = 0
-        holdout_losses_ndcg = []
-        holdout_losses_ranking = []
-        # learned_rankings = []
-        for D_tr, D_te in kf.split(list_datasets):
-            vprint(args.verbose, "\n********** Fold " + str(iteration) + " **********")
-
-            # Init a new agent instance in each iteration
-            agent = Agent(number_of_algorithms=len(list_algorithms), root_dir=root_dir, encoder=args.encoder)
-
-            # META-TRAINING-----------
-            trained_agent = meta_training(agent, D_tr, env, encoder_config=config, epochs=budget)
-
-            # precompute ground trugh labels:
-            # get ground truth label
-            meta_test_dataset = [list_datasets[d] for d in D_te]
-            meta_features = {k: env.meta_features[k] for k in meta_test_dataset}
-            learning_curves = {k: env.test_learning_curves[k] for k in meta_test_dataset}
-            meta_test_dataset = Dataset_Gravity(meta_features, learning_curves, env.algorithms_meta_features)
-
-            ground_truth_rankings = np.argsort(meta_test_dataset.algo_final_performances, axis=1)
-
-            # META-TESTING-------------
-            # meta_testing(trained_agent, D_te)  # <<<--- intercepting the results on the heldout fold
-            holdout_rankings = []
-            holdout_rankings_truth = []
-            holdout_embedding_distances = []  # distances of algorithms to the dataset. (base for ranking vector)
-            for d_te in D_te:
-                dataset_name = list_datasets[d_te]
-                meta_features = env.meta_features[dataset_name]
-
-                # === Reset both the environment and the trained_agent for a new task
-                dataset_meta_features, algorithms_meta_features = env.reset(dataset_name=dataset_name)
-                # agent.reset will already trigger a prediction on the new dataset
-                trained_agent.reset(dataset_meta_features, algorithms_meta_features)
-                holdout_rankings.append(trained_agent.learned_rankings)
-                holdout_rankings_truth.append(ground_truth_rankings.loc[int(dataset_name), :])
-
-                # get the embedding distances (score for ndcg loss)
-                d_index = meta_test_dataset.datasets_meta_features_df.index.tolist().index(int(dataset_name))
-                d_new = meta_test_dataset.datasets_meta_features[d_index].reshape(1, -1)
-                d_new = d_new.to(agent.model.device)
-                agent.model.eval()
-                Z_data = agent.model.encode(d_new)
-                dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
-                holdout_embedding_distances.append(torch.topk(dist_mat, largest=False, k=20)[1][0])
-
-            holdout_rankings_truth = np.array(holdout_rankings)
-            holdout_embedding_distances = torch.stack(holdout_embedding_distances)
-
-            # compute the fold's loss
-            # Fixme: choose a K?? NDCG@K loss!
-            with torch.no_grad():
-                holdout_embedding_distances = holdout_embedding_distances.cpu()
-
-                holdout_losses_ndcg.append(
-                    ndcg_score(holdout_rankings_truth, holdout_embedding_distances.numpy(),
-                               k=10, sample_weight=None, ignore_ties=False))
-
-            # todo ranking loss: requires to collect the learned rankings per dataset_new
-            # holdout_losses_ranking.append(
-            #     label_ranking_loss(holdout_rankings_truth, trained_agent.learned_rankings))
-
-            iteration += 1
-        print()
-        # average across holdout_scores
-        return 1 - (sum(holdout_losses_ndcg) / len(holdout_losses_ndcg))  # no_splits=6
-
+    # (1) setup TAE
 
     # (2) Set up SMAC-MF with budget schedual ----------------------------------
     scenario = Scenario({
@@ -402,7 +404,7 @@ if __name__ == "__main__":
     # To optimize, we pass the function to the SMAC-object
     smac = SMAC4MF(
         scenario=scenario,
-        rng=np.random.RandomState(42),
+        rng=np.random.RandomState(args.seed),  # was 42 originally.
         tae_runner=tae,
         intensifier_kwargs=intensifier_kwargs
     )
@@ -430,4 +432,3 @@ if __name__ == "__main__":
         config=incumbent,
         budget=intensifier_kwargs['max_budget'],
         seed=0)[1]
-
