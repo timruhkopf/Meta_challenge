@@ -275,7 +275,12 @@ if __name__ == "__main__":
         encoder_config = {}
 
         # === META-TRAINING
-        trained_agent = meta_training(agent, D_tr, encoder_config=encoder_config, epochs=2000)
+        trained_agent = meta_training(
+                                agent, 
+                                D_tr, 
+                                encoder_config=encoder_config, 
+                                epochs=2000
+                            )
 
         # === META-TESTING
         meta_testing(trained_agent, D_te)

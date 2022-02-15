@@ -48,8 +48,7 @@ class Meta_Learning_Environment:
         test_data_dir,
         meta_features_dir,
         algorithms_meta_features_dir,
-        output_dir,
-    ):
+        output_dir, ):
         """
         Initialize the meta-learning environment
 
@@ -152,6 +151,7 @@ class Meta_Learning_Environment:
                 self.validation_learning_curves[dataset_name] = dict_temp
             vprint(verbose, "[+]Finished loading VALIDATION learning curves")
 
+
         # === Load TEST LEARNING CURVES
         vprint(verbose, "[+]Start loading TEST learning curves")
         # Iterate through all datasets
@@ -221,9 +221,16 @@ class Meta_Learning_Environment:
         self.counters = {
             i: 0.0 for i in range(len(self.list_algorithms))
         }  # Counters keeping track of the time has been spent for each algorithm
+
+        
         dataset_meta_features = self.meta_features[dataset_name]
         self.total_time_budget = float(dataset_meta_features["time_budget"])
+
         self.remaining_time_budget = self.total_time_budget
+
+        # print(f'[+]Remaining time budget: {self.remaining_time_budget}')
+
+        # pdb.set_trace()
 
         return dataset_meta_features, self.algorithms_meta_features
 
@@ -262,6 +269,10 @@ class Meta_Learning_Environment:
         A_star, A, delta_t = action
         done = False
 
+        print(f'A : {A}')
+        print(f'delta_t : {delta_t}')
+        print(f'A_star : {A_star}')
+
         # === The agent cannot exceed the total time budget
         if delta_t >= self.remaining_time_budget:
             delta_t = self.remaining_time_budget
@@ -271,8 +282,7 @@ class Meta_Learning_Environment:
         if A_star == None:
             C_A_star = 0.0
         else:
-            _, C_A_star = self.test_learning_curves[self.dataset_name][
-                self.list_algorithms[A_star]
+            R_validation_C_A_star, C_A_star = self.test_learning_curves[self.dataset_name][self.list_algorithms[A_star]
             ].get_last_point_within_delta_t(0, self.counters[A_star])
 
         # === Reveal C_A, R_validation_C_A
@@ -282,7 +292,21 @@ class Meta_Learning_Environment:
 
         # === Update algorithm counters and the remaining time budget
         self.counters[A] = C_A
+        C_A_star = C_A
+
         self.remaining_time_budget = self.remaining_time_budget - delta_t
+
+
+        # print(f'self.counters[A] : {self.counters[A]}')
+        # print(f'self.counters[A_star] : {self.counters[A_star]}')
+        # print(f'C_A_star : {C_A_star}')
+        # print(f'C_A : {C_A}')
+        # print(f'R_validation_C_A : {R_validation_C_A}')
+        # print(f'R_validation_C_A_star : {R_validation_C_A_star}')
+        # print(f'remaining_time_budget : {self.remaining_time_budget}')
+
+
+        # pdb.set_trace()
 
         # === Prepare an observation to be sent to the agent
         observation = (A, C_A, R_validation_C_A)
@@ -295,7 +319,7 @@ class Meta_Learning_Environment:
         hidden_observation = [
                                 str(A_star),            # Algorithm
                                 str(C_A_star),          # Perofrmance of Algorithm
-                                total_time_spent        # Time spent
+                                str(total_time_spent)        # Time spent
                             ]
         
         with open(self.output_dir + "/" + self.dataset_name + ".csv", "a") as f:

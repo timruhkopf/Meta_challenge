@@ -9,6 +9,8 @@ from gravitas.base_encoder import BaseEncoder
 from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
 
+import pdb
+
 
 class Agent_Gravitas:
     def __init__(
@@ -129,7 +131,7 @@ class Agent_Gravitas:
                    validation_learning_curves,
                    test_learning_curves,
                    # set up the encoder architecture
-                   epochs=1000,
+                   epochs=2000,
                    pretrain_epochs=500,  # fixme: change back!
                    batch_size=9,
                    n_compettitors=11,
@@ -343,8 +345,11 @@ class Agent_Gravitas:
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
         A = self.learned_rankings[trials]
-        A_star = A  # FIXME: what is the difference?
-        delta_t = self.budgets[trials]
+        A_star = A  
+        delta_t = self.budgets[trials][0]
+
+        if delta_t < 0:
+            delta_t = 10
 
         # TODO suggest based on bandit policy
         return A_star, A, delta_t

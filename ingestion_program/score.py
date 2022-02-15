@@ -8,12 +8,15 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir)
 
 root_dir = os.getcwd()
-from environment import Meta_Learning_Environment
+from ingestion_program import Meta_Learning_Environment
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from glob import glob
 import base64
+
+
+import pdb
 
 # === Verbose mode
 verbose = True
@@ -25,7 +28,7 @@ default_program_dir = os.path.join(root_dir, "ingestion_program/")
 default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
 
 # === Normalize time as implemented in the AutoML challenge
-normalize_t = True
+normalize_t = False
 t_0 = 60.0  # Hyperparameters used for computing scaled time (t_tilde). It controls how important performing well at the beginning is.
 
 
@@ -182,9 +185,11 @@ def normalize_time(df, total_time_budget, t_0):
 
     """
 
+
     df["total_time_spent"] = df["total_time_spent"].apply(
-        lambda x: np.log(1 + x / t_0) / np.log(1 + total_time_budget / t_0)
-    )
+                                
+                                   lambda x: np.log(1 + float(x) / t_0) / np.log(1 + total_time_budget / t_0) 
+                            )                        
 
     return df
 

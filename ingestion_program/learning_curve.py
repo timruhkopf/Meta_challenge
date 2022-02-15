@@ -4,6 +4,7 @@ import json
 # === Verbose mode
 verbose = True
 
+import pdb
 
 def vprint(mode, t):
     """
@@ -123,18 +124,31 @@ class Learning_Curve:
 
         """
 
+        # print(f'Entering Learning curve function')
+        # print(f'C = {C}')
+        # print(f'delta_t = {delta_t}')
+
+        
+
         temp_time = C + delta_t
+
+        # print(f'temp_time = {temp_time}')
+
 
         for i in range(len(self.timestamps)):
             if temp_time < self.timestamps[i]:
-                if (
-                    i == 0
-                ):  # if delta_t is not enough to get the first point, the agent wasted it for nothing!
+                if (i == 0):  # if delta_t is not enough to get the first point, the agent wasted it for nothing!
                     score, timestamp = 0.0, 0.0
+                
                 else:  # return the last achievable point
                     score, timestamp = self.scores[i - 1], self.timestamps[i - 1]
+                
+           
                 return score, timestamp
 
         # If the last point on the learning curve is already reached, return it
         score, timestamp = self.scores[-1], self.timestamps[-1]
+        
+       
+        
         return score, timestamp

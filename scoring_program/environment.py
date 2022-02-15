@@ -280,6 +280,8 @@ class Meta_Learning_Environment:
 
         # === Update algorithm counters and the remaining time budget
         self.counters[A] = C_A
+        C_A_star = C_A
+
         self.remaining_time_budget = self.remaining_time_budget - delta_t
 
         # === Prepare an observation to be sent to the agent
