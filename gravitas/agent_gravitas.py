@@ -5,6 +5,9 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
 
+from gravitas.autoencoder import AE
+from gravitas.base_encoder import BaseEncoder
+from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
 
 
@@ -25,6 +28,8 @@ def check_diversity(representation, title, epsilon=0.01):
 
 
 class Agent_Gravitas:
+    encoder_class = {'AE': AE, 'VAE': VAE}
+
     def __init__(
             self,
             number_of_algorithms,
@@ -150,23 +155,30 @@ class Agent_Gravitas:
                    lr=0.001,
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
-                   repellent_share=0.33):
+                   repellent_share=0.33,
+                   training='schedual'):
         """
         Start meta-training the agent with the validation and test learning curves
 
-        Parameters
-        ----------
-        datasets_meta_features : dict of dict of {str: str}
+        :param datasets_meta_features : dict of dict of {str: str}
             Meta-features of meta-training datasets
-
-        algorithms_meta_features : dict of dict of {str: str}
+        :param algorithms_meta_features : dict of dict of {str: str}
             The meta_features of all algorithms
-
-        validation_learning_curves : dict of dict of {int : Learning_Curve}
+        :param validation_learning_curves : dict of dict of {int : Learning_Curve}
             VALIDATION learning curves of meta-training datasets
-
-        test_learning_curves : dict of dict of {int : Learning_Curve}
+        :param test_learning_curves : dict of dict of {int : Learning_Curve}
             TEST learning curves of meta-training datasets
+        :param epochs:
+        :param pretrain_epochs:
+        :param batch_size:
+        :param n_compettitors:
+        :param lr:
+        :param embedding_dim:
+        :param weights:
+        :param repellent_share:
+        :param training: str. 'schedual': uses model.train_schedual
+        'gravity' uses model.train_gravity
+
 
         Examples:
         To access the meta-features of a specific dataset:
@@ -183,6 +195,7 @@ class Agent_Gravitas:
 
         >>> validation_learning_curves['Erik']['0'].scores
         [0.6465293662860659, 0.6465293748988077, 0.6465293748988145, 0.6465293748988159, 0.6465293748988159]
+
         """
 
         # validation dataloader
@@ -218,7 +231,7 @@ class Agent_Gravitas:
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = eval(self.encoder)(
+        self.model = self.encoder_class[self.encoder](
             input_dim=10,
             embedding_dim=embedding_dim,
             hidden_dims=[8, 4],
@@ -229,15 +242,15 @@ class Agent_Gravitas:
 
         )
 
-        print(f'\nPretraining {str(self.encoder)} with reconstruction loss: ')
-        tracking_pre, losses_pre, test_losses_pre = self.model.pretrain(
-            self.valid_dataloader, self.test_dataloader, epochs=pretrain_epochs)
+        if training == 'gravity':
+            tracking, losses, test_losses = self.model.train_gravity(
+                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs], lr=lr)
 
-        print(f'\nTraining {str(self.encoder)} with gravity loss:')
-        tracking, losses, test_losses = self.model.trainer(
-            self.valid_dataloader, self.test_dataloader, epochs=epochs, lr=lr)
+        elif training == 'schedual':
+            tracking, losses, test_losses = self.model.train_schedule(
+                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
-        self.plot_encoder_training(losses, losses_pre)
+        self.plot_encoder_training(losses)
         self.plot_current_embedding()
 
         # TODO: Add Bandit exploration
@@ -316,6 +329,9 @@ class Agent_Gravitas:
         """
         # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
 
+        # FIXME: Query: C_A: we cannot only log the delta_t, because the actual time
+        #  spent wont be incremented by delta_t - but only by the timestamp.
+        #  in fact we need to track C_A to know how much budget should
         # keep track of spent budget & observed performances
         if observation is not None:  # initial observation is None
             A, C_A, R = observation
@@ -330,17 +346,15 @@ class Agent_Gravitas:
         # TODO suggest based on bandit policy
         return A_star, A, delta_t
 
-    def plot_encoder_training(self, losses, losses_pre):
+    def plot_encoder_training(self, losses, ):
         # plot pretrain loss at each epoch.
         plt.figure()
         plt.plot(torch.tensor(losses).numpy(), label="gravity")
-        plt.plot(torch.tensor(losses_pre).numpy(), label="pre")
         plt.legend()
         plt.savefig(
             f'{self.root_dir}/output/{self.encoder}_training_loss.png',
         )
-        # len(tracking_pre)
-        # len(losses_pre)
+
 
     def plot_current_embedding(self, normalize=False):
         """

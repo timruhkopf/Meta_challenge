@@ -7,17 +7,18 @@ from typing import List
 
 from gravitas.base_encoder import BaseEncoder
 
+
 class AE(BaseEncoder):
     # TODO allow for algo meta features
     def __init__(
-        self,
-        input_dim: int = 10,
-        hidden_dims: List[int] = [8,4],
-        embedding_dim: int = 2,
-        weights=[1.0, 1.0, 1.0, 1.0],
-        repellent_share=0.33,
-        n_algos=20,
-        device=None,
+            self,
+            input_dim: int = 10,
+            hidden_dims: List[int] = [8, 4],
+            embedding_dim: int = 2,
+            weights=[1.0, 1.0, 1.0, 1.0],
+            repellent_share=0.33,
+            n_algos=20,
+            device=None,
     ):
         """
 
@@ -29,6 +30,7 @@ class AE(BaseEncoder):
         """
         super().__init__()
         self.device = device
+        weights = [weights[0], *weights[2:], weights[1]] # fixme: change the doc instead!
         self.weights = torch.tensor(weights).to(device)
         self.repellent_share = repellent_share
 
@@ -38,6 +40,7 @@ class AE(BaseEncoder):
         self.hidden_dims = hidden_dims
 
         self._build_network()
+        self.cossim = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
 
         # initialize the algorithms in embedding space
         self.n_algos = n_algos
@@ -86,8 +89,7 @@ class AE(BaseEncoder):
             input_dim = h_dim
 
         modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())  #input_dim, self.input_dim
-
+        modules.append(nn.Sigmoid())  # input_dim, self.input_dim
 
         self.decoder = nn.Sequential(*modules)
 
@@ -104,6 +106,49 @@ class AE(BaseEncoder):
         :return: tuple: output tensor
         """
         return self.decode(self.encode(D))
+
+    def _loss_reconstruction(self, D0, D0_fwd, *args, **kwargs):
+        # reconstruction loss (Autoencoder loss)
+        # its purpose is to avoid simple single point solution with catastrophic
+        # information loss - in the absence of a repelling force.
+        return torch.nn.functional.mse_loss(D0, D0_fwd)
+
+    def _loss_datasets(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+
+        reconstruction = self._loss_reconstruction(D0, D0_fwd)
+        # batch similarity order + no_repellents
+        no_comparisons = A1.shape[1]
+        similarity_order_ind = torch.stack([torch.argsort(self.cossim(a0, a1)) for a0, a1 in zip(A0, A1)])
+        no_repellent = int(no_comparisons * self.repellent_share)
+
+        # find the repellent forces
+        repellents = similarity_order_ind[:, :no_repellent]
+        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
+        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
+        mutual_weighted_dist = [(1 - self.cossim(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
+        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+
+        # find the attracting forces
+        attractors = similarity_order_ind[:, no_repellent:]
+        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
+        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
+        mutual_weighted_dist = [self.cossim(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
+        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
+
+        return torch.stack([data_attractor, (-1) * data_repellent, reconstruction]) @ self.weights[:3]
+
+    def _loss_algorithms(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
+        # TODO check that direction (sign) is correct!
+        # compute the distance between algos and D0 (batch) dataset in embedding space
+        # and weigh the distances by the algorithm's performances
+        # --> pull is normalized by batch size & number of algorithms
+        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
+        # TODO use torch.cdist for distance matrix calculation!
+        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
+        return (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
     def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
         """
@@ -132,72 +177,48 @@ class AE(BaseEncoder):
         :return: scalar.
         """
 
-        # reconstruction loss (Autoencoder loss)
-        # its purpose is to avoid simple single point solution with catastrophic
-        # information loss - in the absence of a repelling force.
-        reconstruction = torch.nn.functional.mse_loss(D0, D0_fwd)
+        algo_pull = self._loss_algorithms(D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
 
-        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
-        # TODO check that direction (sign) is correct!
-        # compute the distance between algos and D0 (batch) dataset in embedding space
-        # and weigh the distances by the algorithm's performances
-        # --> pull is normalized by batch size & number of algorithms
-        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
-        # TODO use torch.cdist for distance matrix calculation!
-        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
-        algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
+        gravity = self._loss_datasets(
+            D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
 
-        # Dataset's mutual "gravity" based on top performing algorithms
-        cos = lambda x1, x2: torch.nn.functional.cosine_similarity(x1, x2, dim=1, eps=1e-08)
-        
-        # batch similarity order + no_repellents
-        no_comparisons = A1.shape[1]
-        similarity_order_ind = torch.stack([torch.argsort(cos(a0, a1)) for a0, a1 in zip(A0, A1)])
-        no_repellent = int(no_comparisons * self.repellent_share)
+        return torch.stack([gravity, self.weights[-1] * algo_pull,])
 
-        # find the repellent forces
-        repellents = similarity_order_ind[:, :no_repellent]
-        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
-        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
-        mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
-        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+    def train_gravity(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+        """
+        Two step training:
+        1) Pretraining using reconstruction loss
+        2) Training using gravity loss (reconstruction + attraction + repellent +
+        :param train_dataloader:
+        :param test_dataloader:
+        :param epochs: list of int (len 2): epochs for step 1) and 2) respectively
+        :param lr:
+        :return:
+        """
+        name = self.__class__.__name__
+        print(f'\nPretraining {name} with reconstruction loss: ')
+        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0])
 
-        # find the attracting forces
-        attractors = similarity_order_ind[:, no_repellent:]
-        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
-        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
-        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
-        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
+        print(f'\nTraining {name} with gravity loss:')
+        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs[1], lr=lr)
 
-        return torch.stack([
-                        reconstruction, 
-                        algo_pull, 
-                        data_attractor, 
-                        (-1)*data_repellent
-                    ]) @ self.weights
-
-    def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
-        # ignore the other inputs
-        loss = lambda D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo: \
-            torch.nn.functional.mse_loss(D0, D0_fwd)
-        return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
-
-    def trainer(self, train_dataloader, test_dataloader, epochs, lr=0.001):
-        # TODO check convergence: look if neither Z_algo nor Z_data move anymore!
-        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr)
-
-    def training_schedual(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+    def train_schedule(self, train_dataloader, test_dataloader, epochs=[100, 100, 100], lr=0.001):
         # Consider Marius idea to first find a reasonable data representation
         #  and only than train with the algorithms
 
         # pretrain
+        name = self.__class__.__name__
+        print(f'\nPretraining {name} with reconstruction loss:')
+        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0], lr)
 
         # train datasets
+        print(f'\nTraining {name} with dataset loss:')
+        self._train(self._loss_datasets, train_dataloader, test_dataloader, epochs[1], lr)
 
         # train algorithms
-        pass
+        print(f'\nTraining {name} with algorithm:')
+        return self._train(self._loss_algorithms, train_dataloader, test_dataloader, epochs[2], lr)
+
 
     def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
         losses = []
@@ -230,19 +251,20 @@ class AE(BaseEncoder):
                 # gradient step
                 loss.backward()
                 optimizer.step()
+                # TODO check convergence: look if neither Z_algo nor Z_data move anymore! ( infrequently)
 
             losses.append(loss)
 
             # validation every e epochs
             test_timer = 10
             test_losses = []
-            if e % test_timer == 0:
-                # look at the gradient step's effects on validation data
-                D_test = train_dataloader.dataset.datasets_meta_features
-                D_test = D_test.to(self.device)
-                Z_data = self.encode(D_test)
-
-                tracking.append((self.Z_algo.data.clone(), Z_data))
+            # if e % test_timer == 0:
+            #     # look at the gradient step's effects on validation data
+            #     D_test = train_dataloader.dataset.datasets_meta_features
+            #     D_test = D_test.to(self.device)
+            #     Z_data = self.encode(D_test)
+            #
+            #     tracking.append((self.Z_algo.data.clone(), Z_data))
 
                 # TODO validation procedure
 
@@ -261,7 +283,6 @@ class AE(BaseEncoder):
         self.eval()
 
         with torch.no_grad():
-
             Z_data = self.encode(D)
 
             # find k-nearest algorithms.
