@@ -7,12 +7,13 @@ from sklearn.model_selection import KFold
 import shutil
 import pdb
 import inspect
+import copy
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir)
 
-from ingestion_program import Meta_Learning_Environment
+from environment import Meta_Learning_Environment
 
 # === Verbose mode
 verbose = True
@@ -138,12 +139,13 @@ def meta_testing(trained_agent, D_te):
 
     for d_te in D_te:
         dataset_name = list_datasets[d_te]
-        meta_features = env.meta_features[dataset_name]
+        # meta_features = env.meta_features[dataset_name]
 
         # === Reset both the environment and the trained_agent for a new task
         dataset_meta_features, algorithms_meta_features = env.reset(
             dataset_name=dataset_name
         )
+        
         trained_agent.reset(dataset_meta_features, algorithms_meta_features)
         vprint(
             verbose,
@@ -176,6 +178,11 @@ def meta_testing(trained_agent, D_te):
             vprint(verbose, "remaining_time_budget = " + str(env.remaining_time_budget))
             vprint(verbose, "observation = " + str(observation))
             vprint(verbose, "done=" + str(done))
+
+            env.counters[action[0]] = observation[1]
+            env.counters[action[1]] = observation[1]
+
+
     vprint(verbose, "[+]Finished META-TESTING phase")
 
 

@@ -8,7 +8,7 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir)
 
 root_dir = os.getcwd()
-from ingestion_program import Meta_Learning_Environment
+from environment import Meta_Learning_Environment
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt

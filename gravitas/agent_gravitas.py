@@ -342,14 +342,21 @@ class Agent_Gravitas:
             A, C_A, R = observation
             self.times[str(A)] += C_A
             self.obs_performances[str(A)] = R
+        
+        # print(f'self.times : {self.times}')
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
-        A = self.learned_rankings[trials]
-        A_star = A  
-        delta_t = self.budgets[trials][0]
 
+        A = self.learned_rankings[trials%2]
+        A_star = A  
+        delta_t = self.budgets[trials%2][0]
+
+        # Fixme: Negative values of delta_t encountered
+        # in some cases, need to be fixed 
         if delta_t < 0:
-            delta_t = 10
+            delta_t = 0
 
         # TODO suggest based on bandit policy
-        return A_star, A, delta_t
+        return A, A, delta_t
+
+         
