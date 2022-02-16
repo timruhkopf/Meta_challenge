@@ -35,17 +35,21 @@ import argparse
 
 parser = argparse.ArgumentParser()
 # Make sure to set up in this files parent directory!
-parser.add_argument("--hours", type=int, default=1,
+parser.add_argument("--hours", type=float, default=0.1,
                     help="hours allocated to smac")
 parser.add_argument("--encoder", type=str, choices=['AE', 'VAE'], default='AE',
                     help="hours allocated to smac")
-parser.add_argument("--min_b", type=int, default=1000,
+parser.add_argument("--training", type=str, choices=['schedule', 'gravity'], default='schedule',
+                    help="the Autoencoder training procdure applied in (Agent.meta_training)")
+parser.add_argument("--pretrain", type=int, default=10,
+                    help="number of pretraining steps ")
+parser.add_argument("--min_b", type=int, default=10,
                     help="minimum budget for hyperband")
-parser.add_argument("--max_b", type=int, default=10000,
+parser.add_argument("--max_b", type=int, default=100,
                     help="maximum budget for hyperband")
 parser.add_argument('--folds', type=int, default=2,
                     help="number of validation folds.")
-parser.add_argument('--verbose', type=bool, default=True)
+parser.add_argument('--verbose', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=208)
 args = parser.parse_args()
 
@@ -145,6 +149,7 @@ def meta_training(agent, D_tr, env, encoder_config, epochs):
         validation_learning_curves,
         test_learning_curves,
         epochs=epochs,
+        pretrain_epochs=args.pretrain,
         **encoder_config
     )
 

@@ -4,7 +4,6 @@ from torch.utils.data import DataLoader
 
 import matplotlib.pyplot as plt
 
-
 from gravitas.autoencoder import AE
 from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
@@ -140,7 +139,7 @@ class Agent_Gravitas:
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
                    repellent_share=0.33,
-                   training='schedual'):
+                   training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
 
