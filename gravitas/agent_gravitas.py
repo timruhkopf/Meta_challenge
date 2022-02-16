@@ -138,6 +138,7 @@ class Agent:
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
                    repellent_share=0.33,
+                   deselect=5, topk=10, deselection_metric='skew',
                    training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
@@ -184,7 +185,51 @@ class Agent:
             dataset_meta_features,
             validation_learning_curves,
             algorithms_meta_features,
-            n_compettitors)
+            n_compettitors,
+            deselect, topk, deselection_metric)
+
+        # # fixme: move following eda to Dataset_Gravity:
+        # # (0) find out if there are algorithms that perform bad across all tasks
+        # self.valid_dataset.algo_final_performances
+        #
+        # # (1) find if out if there is a good backup algorithm
+        # import numpy as np
+        # import seaborn as sns
+        # import pandas as pd
+        # algo_order = [9, 2, 3, 13, 15, 4, 17, 1, 12, 7, 19, 14, 6, 5, 16, 18, 11, 8, 0, 10]
+        # for k in range(10):
+        #     self.valid_dataset._preprocess_thresholded_algo_performances(k=k)
+        #     (self.valid_dataset.algo_thresholded_rankings != 0).sum(axis=0)
+        #
+        # # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
+        # # ranking[9].value_counts().sort_index().plot.bar() # plot a single algorithm's performances
+        #
+        # # algorithm performances across datasets
+        # for algo in self.valid_dataset.algo_90_performances.columns:
+        #     sns.kdeplot(self.valid_dataset.algo_90_performances[algo], cut=0, label=str(algo))
+        #
+        # plt.xlabel('relative performance')
+        # plt.title('Density of algorithms\'s 90% performance across datasets')
+        # plt.legend()
+        # plt.show()
+        #
+        # # (2) Dataset meta_feature projection
+        # import umap
+        # trans = umap.UMAP(densmap=True, n_neighbors=5, random_state=42).fit(self.valid_dataset.datasets_meta_features_df)
+        # plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5,
+        #             c=self.valid_dataset.algo_final_performances[9] ,cmap='Spectral')
+        # plt.title('Embedding of the training set by densMAP')
+        #
+        # plt.show()
+        #
+        # import umap.plot
+        # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
+        # umap.plot.points(trans, labels=ranking[9], width=500, height=500)
+        # FIXME: start here to find the complementary set.
+        #  1) look at the count of top-k k = 3 and see which are the most promising across all
+        #  2) see how much performance we'd loose if we removed the across all least performing.
+        #     what is the measure here though
+
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
@@ -196,6 +241,17 @@ class Agent:
             test_learning_curves,
             algorithms_meta_features,
             n_compettitors)
+
+        if len(self.valid_dataset.deselected) > 0:
+            print(f'The algorithms {self.valid_dataset.deselected} have been deselected')
+            # ensure test_data has exactly the same deselection of algorithms
+            self.test_dataset.preprocess_with_known_deselection(
+                self.valid_dataset.deselected,
+                dataset_meta_features,
+                test_learning_curves,
+                algorithms_meta_features)
+            self.nA = self.valid_dataset.nA
+
         self.test_dataloader = DataLoader(
             self.test_dataset,
             shuffle=True,
@@ -218,7 +274,7 @@ class Agent:
             hidden_dims=[8, 4],
             weights=weights,
             repellent_share=repellent_share,
-            n_algos=self.nA,
+            n_algos=self.valid_dataset.nA,
             device=device,
 
         )
@@ -243,6 +299,7 @@ class Agent:
         # self.plot_current_embedding()
 
         # TODO: Add Bandit exploration
+        print()
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """

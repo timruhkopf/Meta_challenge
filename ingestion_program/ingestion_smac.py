@@ -49,6 +49,8 @@ parser.add_argument("--max_b", type=int, default=100,
                     help="maximum budget for hyperband")
 parser.add_argument('--folds', type=int, default=2,
                     help="number of validation folds.")
+parser.add_argument('--deselection_metric', type=str, default='skew', choices=['skew', '0threshold'],
+                    help="Metric to use while deselecting")
 parser.add_argument('--verbose', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=208)
 args = parser.parse_args()
@@ -265,9 +267,7 @@ list_algorithms.sort()
 
 # === Import the agent submitted by the participant ------------------------
 path.append(submission_dir)
-from gravitas.agent_gravitas import (
-    Agent_Gravitas as Agent,
-)  # fixme: for debugging: replace with my own Agent script
+from gravitas.agent_gravitas import Agent
 
 # === Clear old output
 # clear_output_dir(output_dir)
@@ -297,6 +297,7 @@ def tae(config, budget):
         config.pop('lossweight' + str(w))
 
     config['lr'] = config.pop('learning_rate_init')
+    config['deselection_metric'] = args.deselection_metric
 
     # === Start iterating, each iteration involves a meta-training step and a meta-testing step
     iteration = 0
@@ -344,7 +345,7 @@ def tae(config, budget):
             agent.model.eval()
             Z_data = agent.model.encode(d_new)
             dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
-            holdout_embedding_distances.append(torch.topk(dist_mat, largest=False, k=20)[1][0])
+            holdout_embedding_distances.append(torch.topk(dist_mat, largest=False, k=agent.nA)[1][0])
 
         holdout_rankings_truth = np.array(holdout_rankings)
         holdout_embedding_distances = torch.stack(holdout_embedding_distances)
@@ -377,6 +378,9 @@ if __name__ == '__main__':
     # Add all hyperparameters at once:
     cs.add_hyperparameters(
         [UniformIntegerHyperparameter('n_compettitors', 1, 19, default_value=10),
+         UniformIntegerHyperparameter('topk', 1, 20, default_value=10),
+         UniformIntegerHyperparameter('deselect', 0, 10, default_value=5),
+         # CategoricalHyperparameter('deselection_metric', choices=[''] ),
          UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3),
          UniformFloatHyperparameter('repellent_share', 0., .8, default_value=0.33),
          UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.),
