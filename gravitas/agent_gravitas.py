@@ -10,7 +10,7 @@ from gravitas.dataset_gravitas import Dataset_Gravity
 from gravitas.utils import check_diversity, check_or_create_dir
 
 
-class Agent_Gravitas:
+class Agent:
     encoder_class = {'AE': AE, 'VAE': VAE}
 
     def __init__(
