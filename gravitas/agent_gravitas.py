@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from gravitas.autoencoder import AE
 from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
-from gravitas.utils import check_diversity
+from gravitas.utils import check_diversity, check_or_create_dir
 
 
 class Agent_Gravitas:
@@ -366,7 +366,11 @@ class Agent_Gravitas:
             return None
 
         else:
-            self._plot_embedding_projection(d_test, z_algo)
+            # fixme : fix umap collapse? -- when the representation is not diverse
+            try:
+                self._plot_embedding_projection(d_test, z_algo)
+            except:
+                pass # if umap throghs an error ignore it!
 
     def _plot_embedding2d(self, d_test, z_algo):
 
