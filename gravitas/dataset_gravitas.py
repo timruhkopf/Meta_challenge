@@ -10,24 +10,34 @@ import seaborn as sns
 
 
 class Dataset_Gravity(Dataset):
-    def __init__(
-            self, 
-            dataset_meta_features, 
-            learning_curves, 
-            algorithms_meta_features, 
-            no_competitors=11, 
-            seed=123456
-        ):
+    def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features,
+                 no_competitors=11,
+                 deselect=0, topk=10, deselection_metric='skew', seed=123456, ):
         """
 
         :param dataset_meta_features:
         :param learning_curves:
         :param algorithms_meta_features:
         :param no_competitors: number of datasets that are compared against. Notice that no_competitors = 2
+        :param deselect: int number of algorithms to deselect using backward selection
+        :param topk: int in deselection: number of topk performing algorithms to consider for selection
+        :param deselection_metric: str. 'skew' or '0threshold'. Skewness based selection looks at how the skewness
+        of the change in performance of topk across all datasets is improved towards improving the avg topk performance.
+        0threshold removes the algorithm with minimal density for decreased avg-topk performance across datasets (i.e.
+        the integral from -inf to 0 of that ecdf.
         is pairwise comparisons
         """
         self.no_competitors = no_competitors
+        self.deselect = deselect
         self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
+
+        if deselect > 0:
+            self.deselected = self._reduce_algo_space(removals=deselect, k=topk, mode=deselection_metric)
+            # redoit all again, so that the getitem never sees these algos
+            self.preprocess_with_known_deselection(self.deselected, dataset_meta_features, learning_curves,
+                                                   algorithms_meta_features)
+
+        self.nA = len(self.algo_final_performances.columns)
 
         # needed for plotting
         self.raw_learning_curves = learning_curves
@@ -61,13 +71,8 @@ class Dataset_Gravity(Dataset):
 
         return D0, D1, A0, A1
 
-    def preprocess(
-            self,
-            dataset_meta_features,
-            learning_curves,
-            algorithms_meta_features,
-            k=3,
-    ):
+    def preprocess(self, dataset_meta_features,
+                   learning_curves, algorithms_meta_features, k=3, ):
         """
         (1) Dataset Meta Features are selected based on being variable and transformed to tensor + normalized
         (2) Learning Curves: for each LC particular properties are read out such as e.g. final performance.
@@ -93,6 +98,17 @@ class Dataset_Gravity(Dataset):
         self._preporcess_scalar_properties(self.algo_learning_curves)
         self._preprocess_dataset_properties(learning_curves, dataset_meta_features)
         self._preprocess_thresholded_algo_performances(k=10)
+
+    def preprocess_with_known_deselection(self, deselected, dataset_meta_features, learning_curves,
+                                          algorithms_meta_features):
+        """
+        wrapper around preprocess to allow user to algin validation and test datasets in terms of algorithm
+        deselection.
+        """
+        self.preprocess(dataset_meta_features,
+                        {d: {a: curve for a, curve in algos.items() if int(a) not in deselected}
+                         for d, algos in learning_curves.items()},
+                        {k: v for k, v in algorithms_meta_features.items() if int(k) not in deselected})
 
     def _preprocess_learning_curves(self, algorithms_meta_features, learning_curves):
         """Enrich the learning curve objects with properties computed on the learning curve
@@ -267,6 +283,88 @@ class Dataset_Gravity(Dataset):
 
         self.algo_thresholded_performances = algo_performances
 
+    def _reduce_algo_space(self, k=10, removals=5, mode='skew'):
+        """
+        Using backward elimination, remove the least performing algorithms.
+        This helps reduce the complexity of the estimation problem.
+
+        Core idea is to iteratively remove columns from self.algo_final_performances
+        by choosing the ones that reduce the overall row score the least.
+        """
+
+        def calc_ecdf(data, n_bins=100):
+            count, bins_count = np.histogram(data, bins=n_bins)
+
+            # finding the PDF of the histogram using count values
+            pdf = count / sum(count)
+            cdf = np.cumsum(pdf)
+            return bins_count[1:], cdf
+
+        def calc_pdf_integral0(data, n_bins):
+            """
+
+            :param data:
+            :param n_bins:
+            :return: probability of below x=0
+            """
+            x, cdf = calc_ecdf(data, n_bins)
+            return cdf[np.argmax(x >= 0)]
+
+        df = self.algo_final_performances
+        k_inv = len(df.columns) - k
+
+        # init for selection
+        deselected = set()
+        remaining = set(df.columns)
+
+        performances = {k: None for k in df.loc[:, remaining]}
+        performance_baseline = df.max(axis=1) - \
+                               df[np.argsort(df, axis=1) >= k_inv].mean(axis=1, )
+        skew_baseline = performance_baseline.skew(axis=0)
+        for r in range(removals):
+
+            # compute which algo hurts the least to remove:
+            for algo in remaining:
+                temp_remaining = set(remaining) - {algo}
+                current_df = df.loc[:, temp_remaining]
+
+                # METRIC for DESELECTION
+                # compute average performance increase (on topk algos) on a dataset (value) deselecting this algo (key)
+                # An improvement can come from deselecting a below mean performing algo
+                # A deterioration comes from removing above mean performing algo on that dataset
+                consider = k_inv - len(deselected)  # rank threshold (minimum rank to get into topk)
+                absolute_perf = current_df[np.argsort(current_df, axis=1) >= consider].mean(axis=1)
+                performances[algo] = performance_baseline - (current_df.max(axis=1) - absolute_perf)
+
+            if mode == 'skew':
+                # remove the algo, that reduces the skewness of the baseline the most
+                skew = pd.DataFrame(performances).skew(axis=0)
+                deselected_algo = skew.index[np.argmin(skew_baseline - skew)]
+                skew_baseline = skew[deselected_algo]
+
+            elif mode == '0threshold':
+                # remove the algo that has least density mass on reducing the overall
+                # performance of datasets (compared to current baseline)
+                deselected_algo = pd.Series({k: calc_pdf_integral0(v, n_bins=100)
+                                             for k, v in performances.items()}).argmin()
+
+            deselected.add(deselected_algo)
+            remaining.remove(deselected_algo)
+            performance_baseline = performances.pop(deselected_algo)
+
+            # # plotting the change in baseline performances across datasets:
+            # # this is the performance profile across remaining algos & datasets removing an algo.
+            # for algo in performances.keys():
+            #     # performances[algo].hist()
+            #
+            #     performances[algo].hist(density=True, histtype='step',
+            #                             cumulative=True, label=str(algo), bins=100, )
+            # plt.legend()
+            # plt.title(f'Leave this algo out decrease in top-{k} avg. performance on a dataset')
+            # plt.show()
+
+        return deselected
+
     def plot_learning_curves(self, dataset_id=9):
 
         for id, curve in self.raw_learning_curves[str(dataset_id)].items():
@@ -301,5 +399,3 @@ class Dataset_Gravity(Dataset):
         plt.title(title)
         plt.legend(loc='upper right')
         plt.show()
-
-
