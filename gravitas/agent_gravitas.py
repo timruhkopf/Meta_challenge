@@ -9,6 +9,8 @@ from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
 from gravitas.utils import check_diversity, check_or_create_dir
 
+import pdb
+
 
 class Agent:
     encoder_class = {'AE': AE, 'VAE': VAE}
@@ -388,7 +390,8 @@ class Agent:
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
         A = self.learned_rankings[trials%self.suggest_topk]
         A_star = A  
-        delta_t = self.budgets[trials%self.suggest_topk][0]
+        
+        delta_t = self.budgets[str(trials%self.suggest_topk)][0]
 
         # Fixme: Negative values of delta_t encountered
         # in some cases, need to be fixed 
@@ -396,6 +399,8 @@ class Agent:
             delta_t = 10
  
         action = (A, A, delta_t)
+
+        return action
 
     def plot_encoder_training(self, losses, ):
         # plot pretrain loss at each epoch.
