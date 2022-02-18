@@ -44,6 +44,7 @@ class Agent:
         self.seed = seed
 
         self.root_dir = root_dir
+        self.suggest_topk = suggest_topk
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -278,7 +279,7 @@ class Agent:
 
         prediction_convergence_speed = {}
         for algo in range(self.nA):
-            prediction_convergence_speed[algo] = self.qr_models[algo].predict(df)
+            prediction_convergence_speed[int(algo)] = self.qr_models[str(algo)].predict(df)
 
         return prediction_convergence_speed
 
