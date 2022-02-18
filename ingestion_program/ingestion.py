@@ -236,7 +236,7 @@ if __name__ == "__main__":
 
     # === Import the agent submitted by the participant ----------------------------------------------------------------
     path.append(submission_dir)
-    from gravitas.agent_gravitas import Agent  # fixme: for debugging: replace with my own Agent script
+    from gravitas.submission_docs.agent import Agent  # fixme: for debugging: replace with my own Agent script
 
     # === Clear old output
     clear_output_dir(output_dir)
@@ -267,7 +267,6 @@ if __name__ == "__main__":
         agent = Agent(
             number_of_algorithms=len(list_algorithms),
             seed=seed,
-            root_dir=root_dir,
             encoder='AE'
         )
 
