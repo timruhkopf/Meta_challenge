@@ -132,7 +132,7 @@ class Agent:
                    test_learning_curves,
                    # set up the encoder architecture
                    epochs=1000,
-                   pretrain_epochs=500,
+                   pretrain_epochs=10,
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,
@@ -386,7 +386,7 @@ class Agent:
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
         A = self.learned_rankings[trials]
         A_star = A  # FIXME: what is the difference?
-        delta_t = self.budgets[trials]
+        delta_t = self.budgets[str(A)]
 
         # TODO suggest based on bandit policy
         return A_star, A, delta_t

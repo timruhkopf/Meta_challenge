@@ -95,7 +95,7 @@ def meta_training(agent, D_tr, encoder_config, epochs):
     algorithms_meta_features = {}
 
     for d_tr in D_tr:
-        dataset_name = list_datasets[d_tr]
+        dataset_name = list_datasets[str(d_tr)]
         datasets_meta_features[dataset_name] = env.meta_features[dataset_name]
         validation_learning_curves[dataset_name] = env.validation_learning_curves[
             dataset_name
@@ -137,7 +137,7 @@ def meta_testing(trained_agent, D_te):
     vprint(verbose, "meta-testing datasets = " + str(D_te))
 
     for d_te in D_te:
-        dataset_name = list_datasets[d_te]
+        dataset_name = list_datasets[str(d_te)]
         meta_features = env.meta_features[dataset_name]
 
         # === Reset both the environment and the trained_agent for a new task
@@ -235,8 +235,9 @@ if __name__ == "__main__":
 
     # === Import the agent submitted by the participant ----------------------------------------------------------------
     path.append(submission_dir)
-    from gravitas.agent_gravitas import         Agent
-     # fixme: for debugging: replace with my own Agent script
+    from gravitas.agent_gravitas import Agent
+
+    # fixme: for debugging: replace with my own Agent script
 
     # === Clear old output
     # clear_output_dir(output_dir)
@@ -256,10 +257,13 @@ if __name__ == "__main__":
         algorithms_meta_features_dir,
         output_dir,
     )
+    list_datasets = {v:k for k, v in zip(env.meta_features.keys(), list_datasets)}
 
     # === Start iterating, each iteration involves a meta-training step and a meta-testing step
     iteration = 0
-    for D_tr, D_te in kf.split(list_datasets):
+    kf_keys = list(list_datasets.keys())
+    kf_keys = [int(s) for s in kf_keys]
+    for D_tr, D_te in kf.split(kf_keys):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 
         # Init a new agent instance in each iteration to prevent
@@ -274,7 +278,7 @@ if __name__ == "__main__":
         encoder_config = {}
 
         # === META-TRAINING
-        trained_agent = meta_training(agent, D_tr, encoder_config=encoder_config, epochs=100)
+        trained_agent = meta_training(agent, D_tr, encoder_config=encoder_config, epochs=10)
 
         # === META-TESTING
         meta_testing(trained_agent, D_te)

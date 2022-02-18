@@ -103,6 +103,7 @@ class Meta_Learning_Environment:
         # === Load META-FEATURES
         vprint(verbose, "[+]Start loading META-FEATURES of datasets")
         # Iterate through all datasets
+        table = dict()
         for d in os.listdir(self.meta_features_dir):
             if ".DS_Store" not in d:
                 dataset_name = d.split(".")[0].split("_")[0]
@@ -115,6 +116,8 @@ class Meta_Learning_Environment:
                             value.replace(" ", "").replace("\n", "").replace("'", ""),
                         )  # remove whitespaces and special symbols
                         dict_temp[key] = value
+                table[dataset_name] = dict_temp['name']
+                dataset_name = dict_temp['name']
                 self.meta_features[dataset_name] = dict_temp
         vprint(verbose, "[+]Finished loading META-FEATURES of datasets")
 
@@ -149,7 +152,7 @@ class Meta_Learning_Environment:
                     dict_temp[algo_name] = Learning_Curve(
                         os.path.join(path_to_algo + "/scores.txt")
                     )
-                self.validation_learning_curves[dataset_name] = dict_temp
+                self.validation_learning_curves[table[dataset_name]] = dict_temp
             vprint(verbose, "[+]Finished loading VALIDATION learning curves")
 
         # === Load TEST LEARNING CURVES
@@ -162,7 +165,7 @@ class Meta_Learning_Environment:
                 dict_temp[algo_name] = Learning_Curve(
                     os.path.join(path_to_algo + "/scores.txt")
                 )
-            self.test_learning_curves[dataset_name] = dict_temp
+            self.test_learning_curves[table[dataset_name]] = dict_temp
         vprint(verbose, "[+]Finished loading TEST learning curves")
 
     def reset(self, dataset_name):
