@@ -1,4 +1,4 @@
-from sklearn.linear_model import QuantileRegressor
+from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
 import torch
 from torch.utils.data import DataLoader
 
@@ -18,7 +18,8 @@ class Agent:
             number_of_algorithms,
             encoder: str = "VAE",
             seed=123546,
-            root_dir=''
+            root_dir='',
+            suggest_topk = 2
     ):
         """
         Initialize the agent
@@ -122,7 +123,7 @@ class Agent:
         # predict the ranking of algorithms for this dataset
         self.learned_rankings = self.model.predict_algorithms(
             dataset_meta_feature_tensor_testing,
-            topk=20
+            topk=self.nA
         )[0].tolist()
 
     def meta_train(self,
@@ -132,7 +133,7 @@ class Agent:
                    test_learning_curves,
                    # set up the encoder architecture
                    epochs=1000,
-                   pretrain_epochs=500,  # fixme: change back!
+                   pretrain_epochs=10,
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,
@@ -232,11 +233,18 @@ class Agent:
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
+        # TODO: checkpointing the model
+        # run_id = hash()
+        # TODO: append hashtable
+        # self.output_dir = f'{self.root_dir}/output/{self.encoder}{run_id}'
+        # check_or_create_dir(self.output_dir)
+        #
+        # torch.save(self.model, f'{self.output_dir}')
+
         self.plot_encoder_training(losses)
         self.plot_current_embedding()
 
         # TODO: Add Bandit exploration
-        print()
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
@@ -259,7 +267,7 @@ class Agent:
         # independent (algo-wise) quantile regression models
         self.qr_models = {k: None for k in Y.columns}
         for algo in Y.columns:
-            self.qr_models[algo] = QuantileRegressor(quantile=confidence, alpha=0)
+            self.qr_models[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
             self.qr_models[algo].fit(X, Y[algo])
 
     def predict_convergence_speed(self, df):
@@ -321,18 +329,26 @@ class Agent:
             self.obs_performances[str(A)] = R
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
-        A = self.learned_rankings[trials]
-        A_star = A  # FIXME: what is the difference?
-        delta_t = self.budgets[trials]
+        A = self.learned_rankings[trials%self.suggest_topk]
+        A_star = A
+        
+        delta_t = self.budgets[A][0]
 
-        # TODO suggest based on bandit policy
-        return A_star, A, delta_t
+        # Fixme: Negative values of delta_t encountered
+        # in some cases, need to be fixed
+        if delta_t < 0:
+            delta_t = 10
+
+        action = (A, A, delta_t)
+
+        return action
 
     def plot_encoder_training(self, losses, ):
         # plot pretrain loss at each epoch.
         plt.figure()
         plt.plot(torch.tensor(losses).numpy(), label="gravity")
         plt.legend()
+
         plt.savefig(
             f'{self.root_dir}/output/{self.encoder}_training_loss.png',
         )
@@ -369,7 +385,7 @@ class Agent:
             try:
                 self._plot_embedding_projection(d_test, z_algo)
             except:
-                pass # if umap throghs an error ignore it!
+                pass  # if umap throghs an error ignore it!
 
     def _plot_embedding2d(self, d_test, z_algo):
 
