@@ -44,6 +44,7 @@ class Agent:
         self.seed = seed
 
         self.root_dir = root_dir
+        self.suggest_topk = suggest_topk
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -133,7 +134,7 @@ class Agent:
                    test_learning_curves,
                    # set up the encoder architecture
                    epochs=1000,
-                   pretrain_epochs=10,
+                   pretrain_epochs=500,
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,

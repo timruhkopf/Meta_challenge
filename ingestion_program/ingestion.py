@@ -67,7 +67,7 @@ def clear_output_dir(output_dir):
     os.system("find . -name '.DS_Store' -type f -delete")
 
 
-def meta_training(agent, D_tr, encoder_config, epochs):
+def meta_training(agent, D_tr, encoder_config, epochs, pretrain_epochs):
     """
     Meta-train an agent on a set of datasets.
 
@@ -114,6 +114,7 @@ def meta_training(agent, D_tr, encoder_config, epochs):
         validation_learning_curves,
         test_learning_curves,
         epochs=epochs,
+        pretrain_epochs=pretrain_epochs,
         **encoder_config
     )
 
@@ -235,9 +236,7 @@ if __name__ == "__main__":
 
     # === Import the agent submitted by the participant ----------------------------------------------------------------
     path.append(submission_dir)
-    from gravitas.agent_gravitas import (
-        Agent_Gravitas as Agent,
-    )  # fixme: for debugging: replace with my own Agent script
+    from gravitas.agent_gravitas import Agent  # fixme: for debugging: replace with my own Agent script
 
     # === Clear old output
     clear_output_dir(output_dir)
@@ -275,7 +274,7 @@ if __name__ == "__main__":
         encoder_config = {}
 
         # === META-TRAINING
-        trained_agent = meta_training(agent, D_tr, encoder_config=encoder_config, epochs=2000)
+        trained_agent = meta_training(agent, D_tr, encoder_config=encoder_config, epochs=10, pretrain_epochs=10)
 
         # === META-TESTING
         meta_testing(trained_agent, D_te)
