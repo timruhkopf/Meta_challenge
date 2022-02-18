@@ -31,18 +31,18 @@ import pdb
 
 
 
-#==============AUTOENCODER==============
+#==============AUTOENCODERS==============
 class AE(nn.Module):
     # TODO allow for algo meta features
     def __init__(
-        self,
-        input_dim: int = 10,
-        hidden_dims: List[int] = [8,4],
-        embedding_dim: int = 2,
-        weights=[1.0, 1.0, 1.0, 1.0],
-        repellent_share=0.33,
-        n_algos=20,
-        device=None,
+            self,
+            input_dim: int = 10,
+            hidden_dims: List[int] = [8, 4],
+            embedding_dim: int = 2,
+            weights=[1.0, 1.0, 1.0, 1.0],
+            repellent_share=0.33,
+            n_algos=20,
+            device=None,
     ):
         """
 
@@ -54,6 +54,7 @@ class AE(nn.Module):
         """
         super().__init__()
         self.device = device
+        weights = [weights[0], *weights[2:], weights[1]] # fixme: change the doc instead!
         self.weights = torch.tensor(weights).to(device)
         self.repellent_share = repellent_share
 
@@ -63,6 +64,7 @@ class AE(nn.Module):
         self.hidden_dims = hidden_dims
 
         self._build_network()
+        self.cossim = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
 
         # initialize the algorithms in embedding space
         self.n_algos = n_algos
@@ -111,8 +113,7 @@ class AE(nn.Module):
             input_dim = h_dim
 
         modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())  #input_dim, self.input_dim
-
+        modules.append(nn.Sigmoid())  # input_dim, self.input_dim
 
         self.decoder = nn.Sequential(*modules)
 
@@ -129,6 +130,49 @@ class AE(nn.Module):
         :return: tuple: output tensor
         """
         return self.decode(self.encode(D))
+
+    def _loss_reconstruction(self, D0, D0_fwd, *args, **kwargs):
+        # reconstruction loss (Autoencoder loss)
+        # its purpose is to avoid simple single point solution with catastrophic
+        # information loss - in the absence of a repelling force.
+        return torch.nn.functional.mse_loss(D0, D0_fwd)
+
+    def _loss_datasets(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+
+        reconstruction = self._loss_reconstruction(D0, D0_fwd)
+        # batch similarity order + no_repellents
+        no_comparisons = A1.shape[1]
+        similarity_order_ind = torch.stack([torch.argsort(self.cossim(a0, a1)) for a0, a1 in zip(A0, A1)])
+        no_repellent = int(no_comparisons * self.repellent_share)
+
+        # find the repellent forces
+        repellents = similarity_order_ind[:, :no_repellent]
+        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
+        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
+        mutual_weighted_dist = [(1 - self.cossim(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
+        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+
+        # find the attracting forces
+        attractors = similarity_order_ind[:, no_repellent:]
+        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
+        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
+        mutual_weighted_dist = [self.cossim(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
+        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
+
+        return torch.stack([data_attractor, (-1) * data_repellent, reconstruction]) @ self.weights[:3]
+
+    def _loss_algorithms(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
+        # TODO check that direction (sign) is correct!
+        # compute the distance between algos and D0 (batch) dataset in embedding space
+        # and weigh the distances by the algorithm's performances
+        # --> pull is normalized by batch size & number of algorithms
+        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
+        # TODO use torch.cdist for distance matrix calculation!
+        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
+        return (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
 
     def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
         """
@@ -157,61 +201,48 @@ class AE(nn.Module):
         :return: scalar.
         """
 
-        # reconstruction loss (Autoencoder loss)
-        # its purpose is to avoid simple single point solution with catastrophic
-        # information loss - in the absence of a repelling force.
-        reconstruction = torch.nn.functional.mse_loss(D0, D0_fwd)
+        algo_pull = self._loss_algorithms(D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
 
-        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
-        # TODO check that direction (sign) is correct!
-        # compute the distance between algos and D0 (batch) dataset in embedding space
-        # and weigh the distances by the algorithm's performances
-        # --> pull is normalized by batch size & number of algorithms
-        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
-        # TODO use torch.cdist for distance matrix calculation!
-        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
-        algo_pull = (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
+        gravity = self._loss_datasets(
+            D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
 
-        # Dataset's mutual "gravity" based on top performing algorithms
-        cos = lambda x1, x2: torch.nn.functional.cosine_similarity(x1, x2, dim=1, eps=1e-08)
-        
-        # batch similarity order + no_repellents
-        no_comparisons = A1.shape[1]
-        similarity_order_ind = torch.stack([torch.argsort(cos(a0, a1)) for a0, a1 in zip(A0, A1)])
-        no_repellent = int(no_comparisons * self.repellent_share)
+        return torch.stack([gravity, self.weights[-1] * algo_pull,])
 
-        # find the repellent forces
-        repellents = similarity_order_ind[:, :no_repellent]
-        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
-        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
-        mutual_weighted_dist = [(1-cos(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
-        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+    def train_gravity(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+        """
+        Two step training:
+        1) Pretraining using reconstruction loss
+        2) Training using gravity loss (reconstruction + attraction + repellent +
+        :param train_dataloader:
+        :param test_dataloader:
+        :param epochs: list of int (len 2): epochs for step 1) and 2) respectively
+        :param lr:
+        :return:
+        """
+        name = self.__class__.__name__
+        print(f'\nPretraining {name} with reconstruction loss: ')
+        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0])
 
-        # find the attracting forces
-        attractors = similarity_order_ind[:, no_repellent:]
-        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
-        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
-        mutual_weighted_dist = [cos(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
-        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
+        print(f'\nTraining {name} with gravity loss:')
+        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs[1], lr=lr)
 
-        return torch.stack([
-                        reconstruction, 
-                        algo_pull, 
-                        data_attractor, 
-                        (-1)*data_repellent
-                    ]) @ self.weights
+    def train_schedule(self, train_dataloader, test_dataloader, epochs=[100, 100, 100], lr=0.001):
+        # Consider Marius idea to first find a reasonable data representation
+        #  and only than train with the algorithms
 
-    def pretrain(self, train_dataloader, test_dataloader, epochs, lr=0.001):
-        # ignore the other inputs
-        loss = lambda D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo: \
-            torch.nn.functional.mse_loss(D0, D0_fwd)
-        return self._train(loss, train_dataloader, test_dataloader, epochs, lr=lr)
+        # pretrain
+        name = self.__class__.__name__
+        print(f'\nPretraining {name} with reconstruction loss:')
+        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0], lr)
 
-    def trainer(self, train_dataloader, test_dataloader, epochs, lr=0.001):
-        # TODO check convergence: look if neither Z_algo nor Z_data move anymore!
-        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs, lr=lr)
+        # train datasets
+        print(f'\nTraining {name} with dataset loss:')
+        self._train(self._loss_datasets, train_dataloader, test_dataloader, epochs[1], lr)
+
+        # train algorithms
+        print(f'\nTraining {name} with algorithm:')
+        return self._train(self._loss_algorithms, train_dataloader, test_dataloader, epochs[2], lr)
+
 
     def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
         losses = []
@@ -244,19 +275,20 @@ class AE(nn.Module):
                 # gradient step
                 loss.backward()
                 optimizer.step()
+                # TODO check convergence: look if neither Z_algo nor Z_data move anymore! ( infrequently)
 
             losses.append(loss)
 
             # validation every e epochs
             test_timer = 10
             test_losses = []
-            if e % test_timer == 0:
-                # look at the gradient step's effects on validation data
-                D_test = train_dataloader.dataset.datasets_meta_features
-                D_test = D_test.to(self.device)
-                Z_data = self.encode(D_test)
-
-                tracking.append((self.Z_algo.data.clone(), Z_data))
+            # if e % test_timer == 0:
+            #     # look at the gradient step's effects on validation data
+            #     D_test = train_dataloader.dataset.datasets_meta_features
+            #     D_test = D_test.to(self.device)
+            #     Z_data = self.encode(D_test)
+            #
+            #     tracking.append((self.Z_algo.data.clone(), Z_data))
 
                 # TODO validation procedure
 
@@ -275,7 +307,6 @@ class AE(nn.Module):
         self.eval()
 
         with torch.no_grad():
-
             Z_data = self.encode(D)
 
             # find k-nearest algorithms.
@@ -287,6 +318,130 @@ class AE(nn.Module):
 
         return top_algo
 
+class VAE(AE):
+    # TODO allow for algo meta features
+    def __init__(
+        self,
+        input_dim: int = 10,
+        hidden_dims: List[int] = [8,4],
+        embedding_dim: int = 2,
+        weights: List[float]=[1.0, 1.0, 1.0, 1.0],
+        repellent_share: float =0.33,
+        n_algos: int =20,
+        device=None,
+    ):
+        """
+
+        :param nodes: list of number of nodes from input to output
+        :param weights: list of floats indicating the weights in the loss:
+        reconstruction, algorithm pull towards datasets, data-similarity-attraction,
+        data-dissimilarity-repelling.
+        :param n_algos: number of algorithms to place in the embedding space
+        """
+        super().__init__()
+        self.device = device
+        self.weights = torch.tensor(weights).to(device)
+        self.repellent_share = repellent_share
+
+        # construct the autoencoder
+        self.embedding_dim = embedding_dim
+        self.input_dim = input_dim
+        self.hidden_dims = hidden_dims
+
+        self._build_network()
+
+        # initialize the algorithms in embedding space
+        self.n_algos = n_algos
+        self.embedding_dim = self.embedding_dim
+        self.Z_algo = nn.Parameter(
+            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
+        )
+
+        self.to(self.device)
+
+    def _build_network(self) -> None:
+        """
+        Builds the encoder and decoder networks
+        """
+        # Make the Encoder
+        modules = []
+
+        hidden_dims = self.hidden_dims
+        input_dim = self.input_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        
+        self.encoder = torch.nn.Sequential(*modules)
+
+        # Mean and std_dev for the latent distribution
+        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
+        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
+
+        # modules.append(nn.Linear(input_dim, self.latent_dim))
+        # modules.append(nn.BatchNorm1d(self.latent_dim))
+        # modules.append(nn.Dropout(p=0.5))
+        # modules.append(nn.ReLU())
+
+        
+
+        # Make the decoder
+        modules = []
+
+        hidden_dims.reverse()
+        input_dim = self.embedding_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.input_dim))
+        modules.append(nn.Sigmoid()) 
+
+
+        self.decoder = nn.Sequential(*modules)
+
+    
+    def reparameterize(
+                    self, 
+                    mu: torch.Tensor, 
+                    logvar: torch.Tensor) -> torch.Tensor:
+        """
+        Reparameterization trick to sample from N(mu, var)
+        """
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        
+        return eps * std + mu
+    
+    def encode(self, x):
+        
+        # Forward pass the input through the network
+        result = self.encoder(x)
+
+        # Get the mean and standard deviation from the output 
+        mu = self.fc_mu(result)
+        log_var = self.fc_var(result)
+
+        # TODO: Plot latent distributions
+
+
+
+        # Sample a latent vector using the reparameterization trick
+        z = self.reparameterize(mu, log_var)
+
+        return z        
+
+    def decode(self, x):
+        return self.decoder(x)
 
 #==============Pre-Processing==============
 class Dataset_Gravity(Dataset):
@@ -330,14 +485,11 @@ class Dataset_Gravity(Dataset):
         """
         # get the dataset & its performances
         D0 = self.datasets_meta_features[item]
-        A0 = self.algo_performances[item]
+        A0 = self.algo_thresholded_performances[item]
 
-        # generate a random compare set
-        # TODO move k to init
-        # TODO seedit
         item_compareset = random.choices(list(set(range(self.nD)) - {item}), k=self.no_competitors)
         D1 = self.datasets_meta_features[item_compareset]
-        A1 = self.algo_performances[item_compareset]
+        A1 = self.algo_thresholded_performances[item_compareset]
 
         return D0, D1, A0, A1
 
@@ -362,38 +514,11 @@ class Dataset_Gravity(Dataset):
         """
         self.nD = len(dataset_meta_features.keys())
 
-
-        print("Preprocessing Dataset Meta Features")
-        print(f'dataset_meta_features: {dataset_meta_features}')
-        print(f'learning_curves: {learning_curves}')
-        print(f'algorithms_meta_features: {algorithms_meta_features}')
-
-        pdb.set_trace()
-
-
         # changing keys to int
-        self.dataset_hash  = {}
-
-        # cnt = 0
-        # for k, _ in dataset_meta_features.items():
-        #     self.dataset_hash[k] = cnt
-        #     cnt +=1
-
-        # self.algo_hash  = {}
-        # cnt = 0
-        # for k, _ in algorithms_meta_features.items():
-        #     self.algo_hash[k] = cnt
-        #     cnt +=1  
-
-        #print(f'dataset_hash: {dataset_hash}')
         algorithms_meta_features = {int(k): v for k, v in algorithms_meta_features.items()}
-
         dataset_meta_features = {int(k): v for k, v in dataset_meta_features.items()}
-        
         learning_curves = {int(k): {int(k1): v1 for k1, v1 in v.items()}
                            for k, v in learning_curves.items()}
-
-
 
         self._preprocess_meta_features(dataset_meta_features)
         self._preprocess_learning_curves(algorithms_meta_features, learning_curves)
@@ -401,14 +526,9 @@ class Dataset_Gravity(Dataset):
         self._preprocess_dataset_properties(learning_curves, dataset_meta_features)
         self._preprocess_thresholded_algo_performances(k=10)
 
-    def _preprocess_learning_curves(
-            self, 
-            algorithms_meta_features, 
-            learning_curves ):
-        """
-        Enrich the learning curve objects with properties computed on the learning curve
-        such as what the final performance is or when it reached the 90% convergence. etc.
-        """
+    def _preprocess_learning_curves(self, algorithms_meta_features, learning_curves):
+        """Enrich the learning curve objects with properties computed on the learning curve
+        such as what the final performance is or when it reached the 90% convergence. etc."""
         # compute algorithm properties -----------------------------------------
         # compute learning curve properties.
 
@@ -418,7 +538,6 @@ class Dataset_Gravity(Dataset):
         self.algo_learning_curves = {
             k: {} for k in algorithms_meta_features.keys()
         }
-
         for ds_id in learning_curves.keys():
             for algo_id, curve in learning_curves[ds_id].items():
                 self.algo_learning_curves[algo_id][ds_id] = curve
@@ -430,15 +549,16 @@ class Dataset_Gravity(Dataset):
                 curve.convergence_share = curve.scores / curve.final_performance
 
                 # stamp at which at least 90% of final performance is reached
-                curve.convergence90_step = np.argmax(curve.convergence_share >= 0.9)
+                threshold = 0.9
+                curve.convergence90_step = np.argmax(
+                    curve.convergence_share >= threshold
+                )
                 curve.convergence90_time = curve.timestamps[curve.convergence90_step]
                 curve.convergence90_performance = curve.scores[curve.convergence90_step]
 
-    def _preporcess_scalar_properties(
-            self, 
-            algo_curves):
+    def _preporcess_scalar_properties(self, algo_curves):
         """
-        Calcualte scalar values for each algorithm, dataset combination
+        calcualte scalar values for each algorithm, dataset combination
 
         :attributes: must be a single matrix [datasets, algorithms]
             -algo_convergences90_time: the time at which the algo reached its 90% performance
@@ -452,7 +572,6 @@ class Dataset_Gravity(Dataset):
         algo_convergences90_time = dict()
         algo_final_performances = dict()
         algo_90_performance = dict()
-        
         for algo_id, curve_dict in algo_curves.items():
             algo_convergences90_time[algo_id] = pd.Series(
                 {k: curve.convergence90_time for k, curve in curve_dict.items()})
@@ -526,8 +645,6 @@ class Dataset_Gravity(Dataset):
         }
         b = 3  # number of points to konsider in the topk_available trials
         for d in learning_curves.keys():
-            
-
             datum = self.dataset_learning_properties[d]
             datum.final_scores = []  # unconditional distribution
             datum.convergence_step = []
@@ -566,13 +683,6 @@ class Dataset_Gravity(Dataset):
         all others that are not in topk performing on a dataset will be set to 0
         :return:
         """
-        # order = self.datasets_meta_features_df.index
-        # algo_performances = pd.DataFrame(
-        #     [self.dataset_learning_properties[i].final_scores for i in order],
-        #     index=order,
-        # )  # index = dataset_id, column = algo_id
-        #
-        # self.algo_final_performances.columns
 
         # optional thresholding: remove k least performing
         algo_performances = torch.tensor(self.algo_final_performances.values, dtype=torch.float32)
@@ -580,15 +690,21 @@ class Dataset_Gravity(Dataset):
         for i_row, row in zip(ind, algo_performances):
             row[i_row] = 0
 
-        self.algo_performances = algo_performances
+        self.algo_thresholded_performances = algo_performances
+
+
+
+
 
 #==============AGENT Class==============
 class Agent:
+
     def __init__(
             self,
             number_of_algorithms,
             seed=123546,
-            suggest_topk=2,
+            encoder: str = "VAE",
+            suggest_topk = 2
     ):
         """
         Initialize the agent
@@ -601,7 +717,7 @@ class Agent:
         encoder : str
             The encoder to use. 
             'AE' for the vanilla autoencoder
-            'VAE' for the variational autoencoder
+            'VAE' for the variational autoencoder -- To 
         
         seed : int
             The seed for the random number generator
@@ -609,7 +725,7 @@ class Agent:
 
         self.nA = number_of_algorithms
         self.times = [0.] * self.nA
-        self.encoder = 'AE'
+        self.encoder = encoder
         self.seed = seed
 
         self.suggest_topk = suggest_topk
@@ -692,7 +808,7 @@ class Agent:
         # predict the ranking of algorithms for this dataset
         self.learned_rankings = self.model.predict_algorithms(
             dataset_meta_feature_tensor_testing,
-            topk=20
+            topk=self.nA
         )[0].tolist()
 
     def meta_train(self,
@@ -702,29 +818,35 @@ class Agent:
                    test_learning_curves,
                    # set up the encoder architecture
                    epochs=1000,
-                   pretrain_epochs=500,  # fixme: change back!
+                   pretrain_epochs=500,
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
-                   repellent_share=0.33):
+                   repellent_share=0.33,
+                   training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
 
-        Parameters
-        ----------
-        datasets_meta_features : dict of dict of {str: str}
+        :param datasets_meta_features : dict of dict of {str: str}
             Meta-features of meta-training datasets
-
-        algorithms_meta_features : dict of dict of {str: str}
+        :param algorithms_meta_features : dict of dict of {str: str}
             The meta_features of all algorithms
-
-        validation_learning_curves : dict of dict of {int : Learning_Curve}
+        :param validation_learning_curves : dict of dict of {int : Learning_Curve}
             VALIDATION learning curves of meta-training datasets
-
-        test_learning_curves : dict of dict of {int : Learning_Curve}
+        :param test_learning_curves : dict of dict of {int : Learning_Curve}
             TEST learning curves of meta-training datasets
+        :param epochs:
+        :param pretrain_epochs:
+        :param batch_size:
+        :param n_compettitors:
+        :param lr:
+        :param embedding_dim:
+        :param weights:
+        :param repellent_share:
+        :param training: str. 'schedule': uses model.train_schedual
+        'gravity' uses model.train_gravity
 
         Examples:
         To access the meta-features of a specific dataset:
@@ -741,6 +863,7 @@ class Agent:
 
         >>> validation_learning_curves['Erik']['0'].scores
         [0.6465293662860659, 0.6465293748988077, 0.6465293748988145, 0.6465293748988159, 0.6465293748988159]
+
         """
 
         # validation dataloader
@@ -765,7 +888,6 @@ class Agent:
             shuffle=True,
             batch_size=batch_size)
 
-
         # meta_learn convergence speed
         self.meta_train_convergence_speed(confidence=0.9)
 
@@ -782,13 +904,14 @@ class Agent:
 
         )
 
-        print(f'\nPretraining {str(self.encoder)} with reconstruction loss: ')
-        tracking_pre, losses_pre, test_losses_pre = self.model.pretrain(
-            self.valid_dataloader, self.test_dataloader, epochs=pretrain_epochs)
+        if training == 'gravity':
+            tracking, losses, test_losses = self.model.train_gravity(
+                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs], lr=lr)
 
-        print(f'\nTraining {str(self.encoder)} with gravity loss:')
-        tracking, losses, test_losses = self.model.trainer(
-            self.valid_dataloader, self.test_dataloader, epochs=epochs, lr=lr)
+        elif training == 'schedule':
+            tracking, losses, test_losses = self.model.train_schedule(
+                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
+
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
@@ -861,29 +984,23 @@ class Agent:
         >>> action
         (9, 9, 80)
         """
-        # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
 
-        # keep track of spent budget & observed performances
         if observation is not None:  # initial observation is None
             A, C_A, R = observation
             self.times[str(A)] += C_A
             self.obs_performances[str(A)] = R
-        
-        # print(f'self.times : {self.times}')
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
-
         A = self.learned_rankings[trials%self.suggest_topk]
-        A_star = A  
-        delta_t = self.budgets[trials%self.suggest_topk][0]
+        A_star = A
+        
+        delta_t = self.budgets[A][0]
 
         # Fixme: Negative values of delta_t encountered
-        # in some cases, need to be fixed 
+        # in some cases, need to be fixed
         if delta_t < 0:
             delta_t = 10
- 
 
         action = (A, A, delta_t)
 
-        # TODO suggest based on bandit policy
-        return action 
+        return action
