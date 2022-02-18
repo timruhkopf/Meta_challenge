@@ -1,4 +1,4 @@
-from sklearn.linear_model import QuantileRegressor
+from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
 import torch
 from torch.utils.data import DataLoader
 
@@ -18,7 +18,8 @@ class Agent:
             number_of_algorithms,
             encoder: str = "VAE",
             seed=123546,
-            root_dir=''
+            root_dir='',
+            suggest_topk = 2
     ):
         """
         Initialize the agent
@@ -43,6 +44,7 @@ class Agent:
         self.seed = seed
 
         self.root_dir = root_dir
+        self.suggest_topk = suggest_topk
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -322,7 +324,7 @@ class Agent:
         # independent (algo-wise) quantile regression models
         self.qr_models = {k: None for k in Y.columns}
         for algo in Y.columns:
-            self.qr_models[algo] = QuantileRegressor(quantile=confidence, alpha=0)
+            self.qr_models[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
             self.qr_models[algo].fit(X, Y[algo])
 
     def predict_convergence_speed(self, df):
@@ -384,18 +386,23 @@ class Agent:
             self.obs_performances[str(A)] = R
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
-        A = self.learned_rankings[trials]
-        A_star = A  # FIXME: what is the difference?
-        delta_t = self.budgets[str(A)]
+        A = self.learned_rankings[trials%self.suggest_topk]
+        A_star = A  
+        delta_t = self.budgets[trials%self.suggest_topk][0]
 
-        # TODO suggest based on bandit policy
-        return A_star, A, delta_t
+        # Fixme: Negative values of delta_t encountered
+        # in some cases, need to be fixed 
+        if delta_t < 0:
+            delta_t = 10
+ 
+        action = (A, A, delta_t)
 
     def plot_encoder_training(self, losses, ):
         # plot pretrain loss at each epoch.
         plt.figure()
         plt.plot(torch.tensor(losses).numpy(), label="gravity")
         plt.legend()
+        
         plt.savefig(
             f'{self.root_dir}/output/{self.encoder}_training_loss.png',
         )
