@@ -25,7 +25,7 @@ random.seed(seed)
 
 # === Setup input/output directories
 root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
-default_input_dir = os.path.join(root_dir, "sample_data/")
+default_input_dir = os.path.join(root_dir, "lala/sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
 default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
@@ -97,9 +97,7 @@ def meta_training(agent, D_tr, encoder_config, epochs, pretrain_epochs):
     for d_tr in D_tr:
         dataset_name = list_datasets[d_tr]
         datasets_meta_features[dataset_name] = env.meta_features[dataset_name]
-        validation_learning_curves[dataset_name] = env.validation_learning_curves[
-            dataset_name
-        ]
+        validation_learning_curves[dataset_name] = env.validation_learning_curves[dataset_name]
         test_learning_curves[dataset_name] = env.test_learning_curves[dataset_name]
 
     # === Get algorithms_meta_features of algorithms
