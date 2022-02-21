@@ -19,7 +19,7 @@ class Agent:
             encoder: str = "VAE",
             seed=123546,
             root_dir='',
-            suggest_topk = 2
+            suggest_topk=2
     ):
         """
         Initialize the agent
@@ -106,10 +106,7 @@ class Agent:
         # preprocess the newly arriving dataset/algo features
         self.algorithms_meta_features = algorithms_meta_features
         dataset_meta_features_df_testing, dataset_meta_feature_tensor_testing = \
-            Dataset_Gravity._preprocess_dataset_properties_meta_testing(
-                dataset_meta_features,
-                self.valid_dataset.normalizations
-            )
+           self.valid_dataset._preprocess_dataset_properties_meta_testing(dataset_meta_features)
 
         dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
 
@@ -216,7 +213,7 @@ class Agent:
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.encoder_class[self.encoder](
-            input_dim=10,
+            input_dim=self.valid_dataset.n_features,
             embedding_dim=embedding_dim,
             hidden_dims=[8, 4],
             weights=weights,
@@ -242,8 +239,8 @@ class Agent:
         #
         # torch.save(self.model, f'{self.output_dir}')
 
-        self.plot_encoder_training(losses)
-        self.plot_current_embedding()
+        # self.plot_encoder_training(losses)
+        # self.plot_current_embedding()
 
         # TODO: Add Bandit exploration
 
@@ -330,9 +327,9 @@ class Agent:
             self.obs_performances[str(A)] = R
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
-        A = self.learned_rankings[trials%self.suggest_topk]
+        A = self.learned_rankings[trials % self.suggest_topk]
         A_star = A
-        
+
         delta_t = self.budgets[A][0]
 
         # Fixme: Negative values of delta_t encountered

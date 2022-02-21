@@ -25,7 +25,7 @@ random.seed(seed)
 
 # === Setup input/output directories
 root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
-default_input_dir = os.path.join(root_dir, "lala/sample_data/")
+default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
 default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
@@ -234,7 +234,7 @@ if __name__ == "__main__":
 
     # === Import the agent submitted by the participant ----------------------------------------------------------------
     path.append(submission_dir)
-    from gravitas.submission_docs.agent import Agent  # fixme: for debugging: replace with my own Agent script
+    from gravitas.agent_gravitas import Agent  # fixme: for debugging: replace with my own Agent script
 
     # === Clear old output
     clear_output_dir(output_dir)

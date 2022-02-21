@@ -4,20 +4,33 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 
 class Dataset_Gravity(Dataset):
+    # Dataset_columns
+    columns_descriptive = ["usage", "name"]
+    columns_categorical = ["task", "target_type", "feat_type", "metric"]
+    columns_binary = ['has_categorical', 'has_missing', 'is_sparse']
+    columns_numerical = ['time_budget', 'feat_num', 'target_num', 'label_num', 'train_num', 'valid_num', 'test_num']
+
+    # Encoder must be available across instances
+    enc_cat = OneHotEncoder(sparse=False)
+    enc_num = MinMaxScaler()
+
+    n_features = 0
+
     def __init__(
-            self, 
-            dataset_meta_features, 
-            learning_curves, 
-            algorithms_meta_features, 
-            no_competitors=11, 
+            self,
+            dataset_meta_features,
+            learning_curves,
+            algorithms_meta_features,
+            no_competitors=11,
             seed=123456
-        ):
+    ):
         """
 
         :param dataset_meta_features:
@@ -32,6 +45,8 @@ class Dataset_Gravity(Dataset):
         # needed for plotting
         self.raw_learning_curves = learning_curves
         self.raw_dataset_meta_features = dataset_meta_features
+
+        # seeding
         random.seed(seed)
         np.random.seed(seed)
 
@@ -60,6 +75,16 @@ class Dataset_Gravity(Dataset):
         A1 = self.algo_thresholded_performances[item_compareset]
 
         return D0, D1, A0, A1
+
+    # consider scikit learn interface for consistency across train/test
+    # def fit(self):
+    #     pass
+    #
+    # def transform(self):
+    #     pass
+    #
+    # def fit_transform(self):
+    #     pass
 
     def preprocess(
             self,
@@ -108,7 +133,7 @@ class Dataset_Gravity(Dataset):
         }
         for ds_id in learning_curves.keys():
             for algo_id, curve in learning_curves[ds_id].items():
-                self.algo_learning_curves[algo_id][ds_id] = curve
+                self.algo_learning_curves[str(algo_id)][ds_id] = curve
 
                 # final performance
                 curve.final_performance = curve.scores[-1]
@@ -165,36 +190,57 @@ class Dataset_Gravity(Dataset):
 
     def _preprocess_meta_features(self, dataset_meta_features):
         """create a df with meta features of each dataset"""
+
         # Preprocess dataset meta data (remove the indiscriminative string variables)
-        datasets_meta_features_df = pd.DataFrame(
-            list(dataset_meta_features.values()), index=dataset_meta_features.keys()
-        )
-        string_typed_variables = [
-            "usage", "name", "task", "target_type", "feat_type", "metric",
-        ]
-        other_columns = list(set(datasets_meta_features_df.columns) - set(string_typed_variables))
-        datasets_meta_features_df = datasets_meta_features_df[other_columns].astype(float)
+        df = pd.DataFrame(
+            list(dataset_meta_features.values()),
+            index=dataset_meta_features.keys())
+
+        binary_df = df[self.columns_binary].astype(float)
 
         # min-max normalization of numeric features
-        df = datasets_meta_features_df
+        numerical_df = df[self.columns_numerical].astype(float)
+        numerical_df = self.enc_num.fit_transform(numerical_df)
+        numerical_df = pd.DataFrame(
+            numerical_df,
+            columns=self.columns_numerical,
+            index=dataset_meta_features.keys())
 
-        self.normalizations = df.min(), df.max()
-        datasets_meta_features_df = (df - df.min()) / (df.max() - df.min())
+        categorical_df = df[self.columns_categorical]
+        categorical_df = self.enc_cat.fit_transform(categorical_df)
+        categorical_df = pd.DataFrame(categorical_df, columns=self.enc_cat.get_feature_names(),
+                                      index=dataset_meta_features.keys())
 
-        self.datasets_meta_features_df = datasets_meta_features_df
+        self.datasets_meta_features_df = pd.concat([numerical_df, categorical_df, binary_df], axis=1)
+        self.n_features = len(self.datasets_meta_features_df.columns)
         self.datasets_meta_features = torch.tensor(
             self.datasets_meta_features_df.values, dtype=torch.float32)
 
-    @staticmethod
-    def _preprocess_dataset_properties_meta_testing(dataset_meta_features, normalizations):
-        df = pd.Series(dataset_meta_features).to_frame().T
-        df = df[['train_num', 'target_num', 'has_categorical', 'valid_num', 'feat_num',
-                 'time_budget', 'label_num', 'is_sparse', 'has_missing', 'test_num']]
-        df = df.astype(float)
-        minimum, maximum = normalizations
-        df = (df - minimum) / (maximum - minimum)
 
-        return df, torch.tensor(df.values, dtype=torch.float32)
+    def _preprocess_dataset_properties_meta_testing(self, dataset_meta_features):
+        """create a dataset, that is of the exact same shape as the preprocessing"""
+        # TODO check if dataset_meta_features is a single example : else: make it
+        #  pd.Dataframe rather than a Series (and do the exact same as in preprocessing)
+        df = pd.Series(dataset_meta_features).to_frame().T
+        df = df[set(df.columns)-set(self.columns_descriptive)]
+
+        binary_df = df[self.columns_binary].astype(float)
+
+        # min-max normalization of numeric features
+        numerical_df = df[self.columns_numerical].astype(float)
+        numerical_df = self.enc_num.transform(numerical_df)
+        numerical_df = pd.DataFrame(numerical_df, columns=self.columns_numerical)
+
+        categorical_df = df[self.columns_categorical]
+        categorical_df = self.enc_cat.transform(categorical_df)
+        categorical_df = pd.DataFrame(categorical_df, columns=self.enc_cat.get_feature_names())
+
+        self.datasets_meta_features_df = pd.concat([numerical_df, categorical_df, binary_df], axis=1)
+        self.n_features = len(self.datasets_meta_features_df.columns)
+        self.datasets_meta_features = torch.tensor(
+            self.datasets_meta_features_df.values, dtype=torch.float32)
+
+        return self.datasets_meta_features_df, self.datasets_meta_features
 
     def _preprocess_dataset_properties(self, learning_curves, dataset_meta_features):
         """
@@ -301,5 +347,3 @@ class Dataset_Gravity(Dataset):
         plt.title(title)
         plt.legend(loc='upper right')
         plt.show()
-
-
