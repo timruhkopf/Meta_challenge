@@ -515,9 +515,9 @@ class Dataset_Gravity(Dataset):
         self.nD = len(dataset_meta_features.keys())
 
         # changing keys to int
-        algorithms_meta_features = {int(k): v for k, v in algorithms_meta_features.items()}
-        dataset_meta_features = {int(k): v for k, v in dataset_meta_features.items()}
-        learning_curves = {int(k): {int(k1): v1 for k1, v1 in v.items()}
+        algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()}
+        dataset_meta_features = {k: v for k, v in dataset_meta_features.items()}
+        learning_curves = {k: {int(k1): v1 for k1, v1 in v.items()}
                            for k, v in learning_curves.items()}
 
         self._preprocess_meta_features(dataset_meta_features)
