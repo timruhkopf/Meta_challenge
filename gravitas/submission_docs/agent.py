@@ -4,20 +4,8 @@ import pandas as pd
 import numpy as np
 from typing import List, Tuple, Any
 
-import subprocess
-
-# def uninstall(name):
-#     subprocess.call(['pip', 'uninstall', '-y', name])
-
-# def install(name):
-#     subprocess.call(['pip', 'install', name])
-
-# #uninstall('scikit-learn')
-# install('scikit-learn==1.0.2')
-
-
 # Packasges that need to be additionally installed
-from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
+from sklearn.ensemble import GradientBoostingRegressor as QuantileRegressor
 #from sklearn.linear_model import QuantileRegressor
 import torch
 from torch.utils.data import DataLoader
@@ -443,6 +431,8 @@ class VAE(AE):
     def decode(self, x):
         return self.decoder(x)
 
+
+
 #==============Pre-Processing==============
 class Dataset_Gravity(Dataset):
     def __init__(
@@ -451,7 +441,8 @@ class Dataset_Gravity(Dataset):
             learning_curves, 
             algorithms_meta_features, 
             no_competitors=11, 
-            seed=123456
+            seed=123456, 
+            dataset_hash=None,
         ):
         """
 
@@ -462,7 +453,7 @@ class Dataset_Gravity(Dataset):
         is pairwise comparisons
         """
         self.no_competitors = no_competitors
-        self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
+        self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features, dataset_hash)
 
         # needed for plotting
         self.raw_learning_curves = learning_curves
@@ -487,6 +478,9 @@ class Dataset_Gravity(Dataset):
         D0 = self.datasets_meta_features[item]
         A0 = self.algo_thresholded_performances[item]
 
+        # generate a random compare set
+        # TODO move k to init
+        # TODO seedit
         item_compareset = random.choices(list(set(range(self.nD)) - {item}), k=self.no_competitors)
         D1 = self.datasets_meta_features[item_compareset]
         A1 = self.algo_thresholded_performances[item_compareset]
@@ -498,6 +492,7 @@ class Dataset_Gravity(Dataset):
             dataset_meta_features,
             learning_curves,
             algorithms_meta_features,
+            dataset_hash,
             k=3,
     ):
         """
@@ -514,11 +509,14 @@ class Dataset_Gravity(Dataset):
         """
         self.nD = len(dataset_meta_features.keys())
 
-        # changing keys to int
-        algorithms_meta_features = {int(k): v for k, v in algorithms_meta_features.items()}
-        dataset_meta_features = {int(k): v for k, v in dataset_meta_features.items()}
-        learning_curves = {int(k): {int(k1): v1 for k1, v1 in v.items()}
+        self.dataset_hash = dataset_hash
+
+        # Changing keys to int
+        algorithms_meta_features = {int(k): v for k, v in algorithms_meta_features.items()}  ## This should work as it is
+        dataset_meta_features = {self.dataset_hash[k]: v for k, v in dataset_meta_features.items()} # This needs to be hashed
+        learning_curves = {self.dataset_hash[k]: {int(k1): v1 for k1, v1 in v.items()}
                            for k, v in learning_curves.items()}
+
 
         self._preprocess_meta_features(dataset_meta_features)
         self._preprocess_learning_curves(algorithms_meta_features, learning_curves)
@@ -527,8 +525,10 @@ class Dataset_Gravity(Dataset):
         self._preprocess_thresholded_algo_performances(k=10)
 
     def _preprocess_learning_curves(self, algorithms_meta_features, learning_curves):
-        """Enrich the learning curve objects with properties computed on the learning curve
-        such as what the final performance is or when it reached the 90% convergence. etc."""
+        """
+        Enrich the learning curve objects with properties computed on the learning curve
+        such as what the final performance is or when it reached the 90% convergence. etc.
+        """
         # compute algorithm properties -----------------------------------------
         # compute learning curve properties.
 
@@ -558,7 +558,7 @@ class Dataset_Gravity(Dataset):
 
     def _preporcess_scalar_properties(self, algo_curves):
         """
-        calcualte scalar values for each algorithm, dataset combination
+        Calcualte scalar values for each algorithm, dataset combination
 
         :attributes: must be a single matrix [datasets, algorithms]
             -algo_convergences90_time: the time at which the algo reached its 90% performance
@@ -596,11 +596,17 @@ class Dataset_Gravity(Dataset):
         self.algo_90_performances.index.name = 'Dataset'
 
     def _preprocess_meta_features(self, dataset_meta_features):
-        """create a df with meta features of each dataset"""
+        """
+        Create a df with meta features of each dataset
+        """
         # Preprocess dataset meta data (remove the indiscriminative string variables)
         datasets_meta_features_df = pd.DataFrame(
-            list(dataset_meta_features.values()), index=dataset_meta_features.keys()
+            list(dataset_meta_features.values()), 
+            index=dataset_meta_features.keys()
         )
+
+        # print (datasets_meta_features_df)
+        # pdb.set_trace()
         string_typed_variables = [
             "usage", "name", "task", "target_type", "feat_type", "metric",
         ]
@@ -616,6 +622,9 @@ class Dataset_Gravity(Dataset):
         self.datasets_meta_features_df = datasets_meta_features_df
         self.datasets_meta_features = torch.tensor(
             self.datasets_meta_features_df.values, dtype=torch.float32)
+
+
+
 
     @staticmethod
     def _preprocess_dataset_properties_meta_testing(dataset_meta_features, normalizations):
@@ -683,6 +692,13 @@ class Dataset_Gravity(Dataset):
         all others that are not in topk performing on a dataset will be set to 0
         :return:
         """
+        # order = self.datasets_meta_features_df.index
+        # algo_performances = pd.DataFrame(
+        #     [self.dataset_learning_properties[i].final_scores for i in order],
+        #     index=order,
+        # )  # index = dataset_id, column = algo_id
+        #
+        # self.algo_final_performances.columns
 
         # optional thresholding: remove k least performing
         algo_performances = torch.tensor(self.algo_final_performances.values, dtype=torch.float32)
@@ -691,8 +707,6 @@ class Dataset_Gravity(Dataset):
             row[i_row] = 0
 
         self.algo_thresholded_performances = algo_performances
-
-
 
 
 
@@ -804,12 +818,14 @@ class Agent:
         # NOTE: Is this required in the RL setting?
         # set delta_t's (i.e. budgets for each algo we'd like to inquire)
         self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
-
+        
         # predict the ranking of algorithms for this dataset
         self.learned_rankings = self.model.predict_algorithms(
             dataset_meta_feature_tensor_testing,
             topk=self.nA
         )[0].tolist()
+
+
 
     def meta_train(self,
                    dataset_meta_features,
@@ -866,12 +882,25 @@ class Agent:
 
         """
 
+        # create a hash table to internally process dataset meta features
+        self.dataset_hash = {}
+        cnt =  0
+
+        for x in dataset_meta_features.keys():
+            self.dataset_hash[x] = cnt
+            cnt += 1
+
+
         # validation dataloader
         self.valid_dataset = Dataset_Gravity(
-            dataset_meta_features,
-            validation_learning_curves,
-            algorithms_meta_features,
-            n_compettitors)
+            dataset_meta_features=dataset_meta_features, 
+            learning_curves=validation_learning_curves, 
+            algorithms_meta_features=algorithms_meta_features, 
+            no_competitors=n_compettitors, 
+            seed=123456, 
+            dataset_hash=self.dataset_hash)
+
+
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
@@ -879,10 +908,14 @@ class Agent:
         )
 
         self.test_dataset = Dataset_Gravity(
-            dataset_meta_features,
-            test_learning_curves,
-            algorithms_meta_features,
-            n_compettitors)
+            dataset_meta_features=dataset_meta_features, 
+            learning_curves=test_learning_curves, 
+            algorithms_meta_features=algorithms_meta_features, 
+            no_competitors=n_compettitors, 
+            seed=123456, 
+            dataset_hash=self.dataset_hash)
+
+
         self.test_dataloader = DataLoader(
             self.test_dataset,
             shuffle=True,
@@ -931,6 +964,11 @@ class Agent:
         X = self.valid_dataset.datasets_meta_features_df
         Y = self.valid_dataset.algo_convergences90_time
 
+        # print(f'Valid Datasets Meta Features : {X}')
+        # print(f'Valid Algo Convergences90 Time : {Y}')
+
+        # pdb.set_trace() 
+
         # independent (algo-wise) quantile regression models
         self.qr_models = {k: None for k in Y.columns}
         for algo in Y.columns:
@@ -945,7 +983,7 @@ class Agent:
 
         prediction_convergence_speed = {}
         for algo in range(self.nA):
-            prediction_convergence_speed[algo] = self.qr_models[algo].predict(df)
+            prediction_convergence_speed[algo] = self.qr_models[algo].predict(df)[0]
 
         return prediction_convergence_speed
 
@@ -992,9 +1030,8 @@ class Agent:
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
         A = self.learned_rankings[trials%self.suggest_topk]
-        A_star = A
         
-        delta_t = self.budgets[A][0]
+        delta_t = self.budgets[A]
 
         # Fixme: Negative values of delta_t encountered
         # in some cases, need to be fixed
