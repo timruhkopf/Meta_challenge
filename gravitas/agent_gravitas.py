@@ -16,7 +16,7 @@ class Agent:
     def __init__(
             self,
             number_of_algorithms,
-            encoder: str = "VAE",
+            encoder: str = "AE",
             seed=123546,
             root_dir='',
             suggest_topk=2
@@ -106,7 +106,7 @@ class Agent:
         # preprocess the newly arriving dataset/algo features
         self.algorithms_meta_features = algorithms_meta_features
         dataset_meta_features_df_testing, dataset_meta_feature_tensor_testing = \
-           self.valid_dataset._preprocess_dataset_properties_meta_testing(dataset_meta_features)
+            self.valid_dataset._preprocess_dataset_properties_meta_testing(dataset_meta_features)
 
         dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
 
