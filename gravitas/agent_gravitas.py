@@ -130,8 +130,8 @@ class Agent:
                    validation_learning_curves,
                    test_learning_curves,
                    # set up the encoder architecture
-                   epochs=1000,
-                   pretrain_epochs=500,
+                   epochs=10,
+                   pretrain_epochs=50,
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,

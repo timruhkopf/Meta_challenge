@@ -6,7 +6,7 @@
 ```console
 cd starting_kit/
 
-conda create --name meta_learning_from_learning_curves_challenge --file requirements.txt --channel=conda-forge
+conda create --name meta --file requirements.txt --channel=conda-forge
 
 conda activate meta_learning_from_learning_curves_challenge
 ```

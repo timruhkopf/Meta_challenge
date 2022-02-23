@@ -1,9 +1,10 @@
 import random
+
 import numpy as np
 from scipy.stats import rankdata
 
 
-class Agent:
+class Agent():
     """
     AVERAGE RANK AGENT
 
@@ -14,7 +15,6 @@ class Agent:
 
     During the META-TESTING phase, it spends the entire time budget for the highest ranked algorithm
     """
-
     def __init__(self, number_of_algorithms):
         """
         Initialize the agent
@@ -35,31 +35,33 @@ class Agent:
         ----------
         dataset_meta_features : dict of {str : str}
             The meta-features of the dataset at hand, including:
-                'usage' : name of the competition
-                'name' : name of the dataset
-                'task' : type of the task
-                'target_type' : target type
-                'feat_type' : feature type
-                'metric' : evaluatuon metric used
-                'time_budget' : time budget for training and testing
-                'feat_num' : number of features
-                'target_num' : number of targets
-                'label_num' : number of labels
-                'train_num' : number of training examples
-                'valid_num' : number of validation examples
-                'test_num' : number of test examples
-                'has_categorical' : presence or absence of categorical variables
-                'has_missing' : presence or absence of missing values
-                'is_sparse' : full matrices or sparse matrices
+                usage = 'AutoML challenge 2014'
+                name = name of the dataset
+                task = 'binary.classification', 'multiclass.classification', 'multilabel.classification', 'regression'
+                target_type = 'Binary', 'Categorical', 'Numerical'
+                feat_type = 'Binary', 'Categorical', 'Numerical', 'Mixed'
+                metric = 'bac_metric', 'auc_metric', 'f1_metric', 'pac_metric', 'a_metric', 'r2_metric'
+                time_budget = total time budget for running algorithms on the dataset
+                feat_num = number of features
+                target_num = number of columns of target file (one, except for multi-label problems)
+                label_num = number of labels (number of unique values of the targets)
+                train_num = number of training examples
+                valid_num = number of validation examples
+                test_num = number of test examples
+                has_categorical = whether there are categorical variable (yes=1, no=0)
+                has_missing = whether there are missing values (yes=1, no=0)
+                is_sparse = whether this is a sparse dataset (yes=1, no=0)
 
         algorithms_meta_features : dict of dict of {str : str}
-            The meta_features of all algorithms
+            The meta_features of each algorithm:
+                meta_feature_0 = 1 or 0
+                meta_feature_1 = 0.1, 0.2, 0.3,…, 1.0
 
         Examples
         ----------
         >>> dataset_meta_features
-        {'usage': 'Meta-learningchallenge2022', 'name': 'Erik', 'task': 'regression',
-        'target_type': 'Binary', 'feat_type': 'Mixed', 'metric': 'f1_metric',
+        {'usage': 'AutoML challenge 2014', 'name': 'Erik', 'task': 'regression',
+        'target_type': 'Binary', 'feat_type': 'Binary', 'metric': 'f1_metric',
         'time_budget': '600', 'feat_num': '9', 'target_num': '6', 'label_num': '10',
         'train_num': '17', 'valid_num': '87', 'test_num': '72', 'has_categorical': '1',
         'has_missing': '0', 'is_sparse': '1'}
@@ -77,13 +79,7 @@ class Agent:
         self.dataset_metadata = dataset_meta_features
         self.validation_last_scores = [0.0 for i in range(self.nA)]
 
-    def meta_train(
-        self,
-        datasets_meta_features,
-        algorithms_meta_features,
-        validation_learning_curves,
-        test_learning_curves,
-    ):
+    def meta_train(self, datasets_meta_features, algorithms_meta_features, validation_learning_curves, test_learning_curves):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -118,17 +114,17 @@ class Agent:
         [0.6465293662860659, 0.6465293748988077, 0.6465293748988145, 0.6465293748988159, 0.6465293748988159]
         """
 
-        # === Compute the averaged ranking across all meta-training datasets
-        # === The ranking is built based on the last score of the learning curve
+        #=== Compute the averaged ranking across all meta-training datasets
+        #=== The ranking is built based on the last score of the learning curve
         global_ranks = []
         for dataset in test_learning_curves:
             lc = test_learning_curves[dataset]
             last_scores = [lc[algo].scores[-1] for algo in lc]
-            dataset_ranks = rankdata(last_scores, method="min")
+            dataset_ranks = rankdata(last_scores, method='min')
             global_ranks.append(dataset_ranks)
         averaged_ranks = np.array(global_ranks).mean(axis=0)
 
-        # === Update the current best algorithm
+        #=== Update the current best algorithm
         self.best_algo = averaged_ranks.argmin()
 
     def suggest(self, observation):
@@ -162,12 +158,12 @@ class Agent:
 
         next_algo_to_reveal = self.best_algo
 
-        # === Sample delta_t (although the agent's spending all the time budget on only one algoritm,
+        #=== Sample delta_t (although the agent's spending all the time budget on only one algoritm,
         #                    we split it into multiple actions with delta_t is uniformly sampled
         #                    to have more points on the agents' learning curve)
         delta_t = random.randrange(10, 100, 10)
 
-        if observation == None:
+        if observation==None:
             best_algo_for_test = None
         else:
             A, C_A, R_validation_C_A = observation

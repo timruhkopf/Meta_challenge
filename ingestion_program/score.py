@@ -1,7 +1,7 @@
-import os
-from sys import argv, path
-import sys
 import inspect
+import os
+import sys
+from sys import argv
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
@@ -16,8 +16,6 @@ import matplotlib.pyplot as plt
 from glob import glob
 import base64
 
-import pdb
-
 # === Verbose mode
 verbose = True
 
@@ -25,7 +23,7 @@ verbose = True
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
-default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
+default_submission_dir = os.path.join(root_dir, "submission/")
 
 # === Normalize time as implemented in the AutoML challenge
 normalize_t = False

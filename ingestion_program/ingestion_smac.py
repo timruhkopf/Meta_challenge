@@ -1,14 +1,11 @@
-import os
-from sys import argv, path
-import random
-import os
-from sklearn.model_selection import KFold
-import time
-import datetime
-import shutil
-import pdb
 import inspect
+import os
+import random
+import shutil
 import sys
+from sys import path
+
+from sklearn.model_selection import KFold
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
@@ -21,11 +18,10 @@ from ingestion_program.environment import Meta_Learning_Environment
 logging.basicConfig(level=logging.INFO)
 import numpy as np
 import torch
-from sklearn.metrics import ndcg_score, label_ranking_loss
+from sklearn.metrics import ndcg_score
 from gravitas.dataset_gravitas import Dataset_Gravity
-import ConfigSpace as CS
 from ConfigSpace.hyperparameters import \
-    CategoricalHyperparameter, UniformFloatHyperparameter, UniformIntegerHyperparameter
+    UniformFloatHyperparameter, UniformIntegerHyperparameter
 
 from smac.configspace import ConfigurationSpace
 from smac.facade.smac_mf_facade import SMAC4MF
@@ -62,7 +58,7 @@ root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project r
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
-default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
+default_submission_dir = os.path.join(root_dir, "submission/")
 
 
 def vprint(mode, t):
