@@ -219,7 +219,9 @@ if __name__ == "__main__":
 
     # === Start iterating, each iteration involves a meta-training step and a meta-testing step
     iteration = 0
-    for D_tr, D_te in kf.split(list_datasets):
+    from tqdm import tqdm
+
+    for D_tr, D_te in tqdm(kf.split(list_datasets)):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 
         # Init a new agent instance in each iteration

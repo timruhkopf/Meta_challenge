@@ -10,16 +10,16 @@ from glob import glob
 import base64
 
 # === Verbose mode
-verbose = True
+verbose = False
 
-#=== Setup input/output directories
+# === Setup input/output directories
 root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
 default_submission_dir = os.path.join(root_dir, "submission/")
 
-#=== Normalize time as implemented in the AutoML challenge
+# === Normalize time as implemented in the AutoML challenge
 normalize_t = True
 t_0 = 60.0 # Hyperparameters used for computing scaled time (t_tilde). It controls how important performing well at the beginning is.
 

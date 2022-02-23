@@ -430,6 +430,7 @@ class Dataset_Gravity(Dataset):
         ]))
 
     n_features = 0
+    deselected = {}
 
     def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features,
                  no_competitors=11,
@@ -1451,7 +1452,7 @@ class Agent:
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
                    repellent_share=0.33,
-                   deselect=5, topk=10, deselection_metric='skew',
+                   deselect=0, topk=10, deselection_metric='skew',
                    training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
