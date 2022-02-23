@@ -1,27 +1,18 @@
 import os
-import sys
 from sys import argv, path
+from environment import Meta_Learning_Environment
 import random
 import os
 from sklearn.model_selection import KFold
+import time
+import datetime
 import shutil
-import pdb
-import inspect
-
-currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-parentdir = os.path.dirname(currentdir)
-sys.path.insert(0, parentdir)
-
-from ingestion_program import Meta_Learning_Environment
 
 # === Verbose mode
-verbose = True
+verbose = False
 
-# === seeding
-seed = 123456
-
-# === Set RANDOM SEED : TODO see how this translates to the whole pipeline
-random.seed(seed)
+# === Set RANDOM SEED
+random.seed(208)
 
 # === Setup input/output directories
 root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
@@ -34,24 +25,29 @@ default_submission_dir = os.path.join(root_dir, "sample_code_submission/")
 def vprint(mode, t):
     """
     Print to stdout, only if in verbose mode.
+
     Parameters
     ----------
     mode : bool
         True if the verbose mode is on, False otherwise.
+
     Examples
     --------
     >>> vprint(True, "hello world")
     hello world
+
     >>> vprint(False, "hello world")
+
     """
 
-    if mode:
+    if (mode):
         print(str(t))
 
 
 def clear_output_dir(output_dir):
     """
     Delete previous output files.
+
     Parameters
     ----------
     output_dir : str
@@ -67,7 +63,7 @@ def clear_output_dir(output_dir):
     os.system("find . -name '.DS_Store' -type f -delete")
 
 
-def meta_training(agent, D_tr, encoder_config, epochs, pretrain_epochs):
+def meta_training(agent, D_tr):
     """
     Meta-train an agent on a set of datasets.
 
@@ -106,15 +102,7 @@ def meta_training(agent, D_tr, encoder_config, epochs, pretrain_epochs):
     # === Start meta-traning the agent
     vprint(verbose, datasets_meta_features)
     vprint(verbose, algorithms_meta_features)
-    agent.meta_train(
-        datasets_meta_features,
-        algorithms_meta_features,
-        validation_learning_curves,
-        test_learning_curves,
-        epochs=epochs,
-        pretrain_epochs=pretrain_epochs,
-        **encoder_config
-    )
+    agent.meta_train(datasets_meta_features, algorithms_meta_features, validation_learning_curves, test_learning_curves)
 
     vprint(verbose, "[+]Finished META-TRAINING phase")
 
@@ -124,6 +112,7 @@ def meta_training(agent, D_tr, encoder_config, epochs, pretrain_epochs):
 def meta_testing(trained_agent, D_te):
     """
     Meta-test the trained agent on a set of datasets.
+
     Parameters
     ----------
     trained_agent : Agent
@@ -140,27 +129,16 @@ def meta_testing(trained_agent, D_te):
         meta_features = env.meta_features[dataset_name]
 
         # === Reset both the environment and the trained_agent for a new task
-        dataset_meta_features, algorithms_meta_features = env.reset(
-            dataset_name=dataset_name
-        )
+        dataset_meta_features, algorithms_meta_features = env.reset(dataset_name=dataset_name)
         trained_agent.reset(dataset_meta_features, algorithms_meta_features)
-        vprint(
-            verbose,
-            "\n#===================== Start META-TESTING on dataset: "
-            + dataset_name
-            + " =====================#",
-        )
+        vprint(verbose,
+               "\n#===================== Start META-TESTING on dataset: " + dataset_name + " =====================#")
         vprint(verbose, "\n#---Dataset meta-features = " + str(dataset_meta_features))
-        vprint(
-            verbose, "\n#---Algorithms meta-features = " + str(algorithms_meta_features)
-        )
+        vprint(verbose, "\n#---Algorithms meta-features = " + str(algorithms_meta_features))
 
         # === Start meta-testing on a dataset step by step until the given total_time_budget is exhausted (done=True)
         done = False
         observation = None
-
-        # 
-
         while not done:
             # === Get the agent's suggestion
             action = trained_agent.suggest(observation)
@@ -184,30 +162,24 @@ def meta_testing(trained_agent, D_te):
 
 if __name__ == "__main__":
     # === Get input and output directories
-    if (
-            len(argv) == 1
-    ):  # Use the default input and output directories if no arguments are provided
+    if len(argv) == 1:  # Use the default input and output directories if no arguments are provided
         input_dir = default_input_dir
         output_dir = default_output_dir
         program_dir = default_program_dir
         submission_dir = default_submission_dir
-        validation_data_dir = os.path.join(input_dir, "valid")
-        test_data_dir = os.path.join(input_dir, "test")
-        meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
-        algorithms_meta_features_dir = os.path.join(
-            input_dir, "algorithms_meta_features"
-        )
+        validation_data_dir = os.path.join(input_dir, 'valid')
+        test_data_dir = os.path.join(input_dir, 'test')
+        meta_features_dir = os.path.join(input_dir, 'dataset_meta_features')
+        algorithms_meta_features_dir = os.path.join(input_dir, 'algorithms_meta_features')
     else:
         input_dir = os.path.abspath(argv[1])
         output_dir = os.path.abspath(argv[2])
         program_dir = os.path.abspath(argv[3])
         submission_dir = os.path.abspath(argv[4])
-        validation_data_dir = os.path.join(input_dir, "valid")
-        test_data_dir = os.path.join(input_dir, "test")
-        meta_features_dir = os.path.join(input_dir, "dataset_meta_features")
-        algorithms_meta_features_dir = os.path.join(
-            input_dir, "algorithms_meta_features"
-        )
+        validation_data_dir = os.path.join(input_dir, 'valid')
+        test_data_dir = os.path.join(input_dir, 'test')
+        meta_features_dir = os.path.join(input_dir, 'dataset_meta_features')
+        algorithms_meta_features_dir = os.path.join(input_dir, 'algorithms_meta_features')
 
     vprint(verbose, "Using input_dir: " + input_dir)
     vprint(verbose, "Using output_dir: " + output_dir)
@@ -216,71 +188,50 @@ if __name__ == "__main__":
     vprint(verbose, "Using validation_data_dir: " + validation_data_dir)
     vprint(verbose, "Using test_data_dir: " + test_data_dir)
     vprint(verbose, "Using meta_features_dir: " + meta_features_dir)
-    vprint(
-        verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir
-    )
+    vprint(verbose, "Using algorithms_meta_features_dir: " + algorithms_meta_features_dir)
 
     # === List of dataset names
     list_datasets = os.listdir(validation_data_dir)
-    if ".DS_Store" in list_datasets:
-        list_datasets.remove(".DS_Store")
+    if '.DS_Store' in list_datasets:
+        list_datasets.remove('.DS_Store')
     list_datasets.sort()
 
     # === List of algorithms
     list_algorithms = os.listdir(os.path.join(validation_data_dir, list_datasets[0]))
-    if ".DS_Store" in list_algorithms:
-        list_algorithms.remove(".DS_Store")
+    if '.DS_Store' in list_algorithms:
+        list_algorithms.remove('.DS_Store')
     list_algorithms.sort()
 
-    # === Import the agent submitted by the participant ----------------------------------------------------------------
+    # === Import the agent submitted by the participant
     path.append(submission_dir)
-    from gravitas.agent_gravitas import         Agent
-     # fixme: for debugging: replace with my own Agent script
+    from gravitas.agent_gravitas import Agent
 
     # === Clear old output
-    # clear_output_dir(output_dir)
+    clear_output_dir(output_dir)
 
     # === Init K-folds cross-validation
-    kf = KFold(
-        n_splits=6,
-        shuffle=False
-    )
+    kf = KFold(n_splits=6, shuffle=False)
 
     ################## MAIN LOOP ##################
     # === Init a meta-learning environment
-    env = Meta_Learning_Environment(
-        validation_data_dir,
-        test_data_dir,
-        meta_features_dir,
-        algorithms_meta_features_dir,
-        output_dir,
-    )
+    env = Meta_Learning_Environment(validation_data_dir, test_data_dir, meta_features_dir, algorithms_meta_features_dir,
+                                    output_dir)
 
     # === Start iterating, each iteration involves a meta-training step and a meta-testing step
     iteration = 0
     for D_tr, D_te in kf.split(list_datasets):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 
-        # Init a new agent instance in each iteration to prevent
-        # leakage between folds
-        agent = Agent(
-            number_of_algorithms=len(list_algorithms),
-            seed=seed,
-            encoder='AE'
-        )
-
-        encoder_config = {}
+        # Init a new agent instance in each iteration
+        agent = Agent(number_of_algorithms=len(list_algorithms))
 
         # === META-TRAINING
-        trained_agent = meta_training(agent, D_tr, encoder_config=encoder_config, epochs=10, pretrain_epochs=10)
+        trained_agent = meta_training(agent, D_tr)
 
         # === META-TESTING
         meta_testing(trained_agent, D_te)
 
         iteration += 1
-
-        # TODO get the performance metric, log it        
-
         # break
     ################################################
 

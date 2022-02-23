@@ -6,7 +6,7 @@ from typing import List, Tuple, Any
 
 # Packasges that need to be additionally installed
 from sklearn.ensemble import GradientBoostingRegressor as QuantileRegressor
-#from sklearn.linear_model import QuantileRegressor
+# from sklearn.linear_model import QuantileRegressor
 import torch
 from torch.utils.data import DataLoader
 import torch
@@ -18,8 +18,7 @@ import torch.distributions as td
 import pdb
 
 
-
-#==============AUTOENCODERS==============
+# ==============AUTOENCODERS==============
 class AE(nn.Module):
     # TODO allow for algo meta features
     def __init__(
@@ -42,7 +41,7 @@ class AE(nn.Module):
         """
         super().__init__()
         self.device = device
-        weights = [weights[0], *weights[2:], weights[1]] # fixme: change the doc instead!
+        weights = [weights[0], *weights[2:], weights[1]]  # fixme: change the doc instead!
         self.weights = torch.tensor(weights).to(device)
         self.repellent_share = repellent_share
 
@@ -194,7 +193,7 @@ class AE(nn.Module):
         gravity = self._loss_datasets(
             D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
 
-        return torch.stack([gravity, self.weights[-1] * algo_pull,])
+        return torch.stack([gravity, self.weights[-1] * algo_pull, ])
 
     def train_gravity(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         """
@@ -230,7 +229,6 @@ class AE(nn.Module):
         # train algorithms
         print(f'\nTraining {name} with algorithm:')
         return self._train(self._loss_algorithms, train_dataloader, test_dataloader, epochs[2], lr)
-
 
     def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
         losses = []
@@ -278,7 +276,7 @@ class AE(nn.Module):
             #
             #     tracking.append((self.Z_algo.data.clone(), Z_data))
 
-                # TODO validation procedure
+            # TODO validation procedure
 
         return tracking, losses, test_losses
 
@@ -306,17 +304,18 @@ class AE(nn.Module):
 
         return top_algo
 
+
 class VAE(AE):
     # TODO allow for algo meta features
     def __init__(
-        self,
-        input_dim: int = 10,
-        hidden_dims: List[int] = [8,4],
-        embedding_dim: int = 2,
-        weights: List[float]=[1.0, 1.0, 1.0, 1.0],
-        repellent_share: float =0.33,
-        n_algos: int =20,
-        device=None,
+            self,
+            input_dim: int = 10,
+            hidden_dims: List[int] = [8, 4],
+            embedding_dim: int = 2,
+            weights: List[float] = [1.0, 1.0, 1.0, 1.0],
+            repellent_share: float = 0.33,
+            n_algos: int = 20,
+            device=None,
     ):
         """
 
@@ -364,7 +363,6 @@ class VAE(AE):
             modules.append(nn.ReLU())
             input_dim = h_dim
 
-        
         self.encoder = torch.nn.Sequential(*modules)
 
         # Mean and std_dev for the latent distribution
@@ -375,8 +373,6 @@ class VAE(AE):
         # modules.append(nn.BatchNorm1d(self.latent_dim))
         # modules.append(nn.Dropout(p=0.5))
         # modules.append(nn.ReLU())
-
-        
 
         # Make the decoder
         modules = []
@@ -392,26 +388,24 @@ class VAE(AE):
             input_dim = h_dim
 
         modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid()) 
-
+        modules.append(nn.Sigmoid())
 
         self.decoder = nn.Sequential(*modules)
 
-    
     def reparameterize(
-                    self, 
-                    mu: torch.Tensor, 
-                    logvar: torch.Tensor) -> torch.Tensor:
+            self,
+            mu: torch.Tensor,
+            logvar: torch.Tensor) -> torch.Tensor:
         """
         Reparameterization trick to sample from N(mu, var)
         """
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
-        
+
         return eps * std + mu
-    
+
     def encode(self, x):
-        
+
         # Forward pass the input through the network
         result = self.encoder(x)
 
@@ -421,29 +415,26 @@ class VAE(AE):
 
         # TODO: Plot latent distributions
 
-
-
         # Sample a latent vector using the reparameterization trick
         z = self.reparameterize(mu, log_var)
 
-        return z        
+        return z
 
     def decode(self, x):
         return self.decoder(x)
 
 
-
-#==============Pre-Processing==============
+# ==============Pre-Processing==============
 class Dataset_Gravity(Dataset):
     def __init__(
-            self, 
-            dataset_meta_features, 
-            learning_curves, 
-            algorithms_meta_features, 
-            no_competitors=11, 
-            seed=123456, 
+            self,
+            dataset_meta_features,
+            learning_curves,
+            algorithms_meta_features,
+            no_competitors=11,
+            seed=123456,
             dataset_hash=None,
-        ):
+    ):
         """
 
         :param dataset_meta_features:
@@ -512,11 +503,12 @@ class Dataset_Gravity(Dataset):
         self.dataset_hash = dataset_hash
 
         # Changing keys to int
-        algorithms_meta_features = {int(k): v for k, v in algorithms_meta_features.items()}  ## This should work as it is
-        dataset_meta_features = {self.dataset_hash[k]: v for k, v in dataset_meta_features.items()} # This needs to be hashed
+        algorithms_meta_features = {int(k): v for k, v in
+                                    algorithms_meta_features.items()}  ## This should work as it is
+        dataset_meta_features = {self.dataset_hash[k]: v for k, v in
+                                 dataset_meta_features.items()}  # This needs to be hashed
         learning_curves = {self.dataset_hash[k]: {int(k1): v1 for k1, v1 in v.items()}
                            for k, v in learning_curves.items()}
-
 
         self._preprocess_meta_features(dataset_meta_features)
         self._preprocess_learning_curves(algorithms_meta_features, learning_curves)
@@ -601,7 +593,7 @@ class Dataset_Gravity(Dataset):
         """
         # Preprocess dataset meta data (remove the indiscriminative string variables)
         datasets_meta_features_df = pd.DataFrame(
-            list(dataset_meta_features.values()), 
+            list(dataset_meta_features.values()),
             index=dataset_meta_features.keys()
         )
 
@@ -622,9 +614,6 @@ class Dataset_Gravity(Dataset):
         self.datasets_meta_features_df = datasets_meta_features_df
         self.datasets_meta_features = torch.tensor(
             self.datasets_meta_features_df.values, dtype=torch.float32)
-
-
-
 
     @staticmethod
     def _preprocess_dataset_properties_meta_testing(dataset_meta_features, normalizations):
@@ -709,8 +698,7 @@ class Dataset_Gravity(Dataset):
         self.algo_thresholded_performances = algo_performances
 
 
-
-#==============AGENT Class==============
+# ==============AGENT Class==============
 class Agent:
 
     def __init__(
@@ -718,7 +706,7 @@ class Agent:
             number_of_algorithms,
             seed=123546,
             encoder: str = "VAE",
-            suggest_topk = 2
+            suggest_topk=2
     ):
         """
         Initialize the agent
@@ -818,14 +806,12 @@ class Agent:
         # NOTE: Is this required in the RL setting?
         # set delta_t's (i.e. budgets for each algo we'd like to inquire)
         self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
-        
+
         # predict the ranking of algorithms for this dataset
         self.learned_rankings = self.model.predict_algorithms(
             dataset_meta_feature_tensor_testing,
             topk=self.nA
         )[0].tolist()
-
-
 
     def meta_train(self,
                    dataset_meta_features,
@@ -884,22 +870,20 @@ class Agent:
 
         # create a hash table to internally process dataset meta features
         self.dataset_hash = {}
-        cnt =  0
+        cnt = 0
 
         for x in dataset_meta_features.keys():
             self.dataset_hash[x] = cnt
             cnt += 1
 
-
         # validation dataloader
         self.valid_dataset = Dataset_Gravity(
-            dataset_meta_features=dataset_meta_features, 
-            learning_curves=validation_learning_curves, 
-            algorithms_meta_features=algorithms_meta_features, 
-            no_competitors=n_compettitors, 
-            seed=123456, 
+            dataset_meta_features=dataset_meta_features,
+            learning_curves=validation_learning_curves,
+            algorithms_meta_features=algorithms_meta_features,
+            no_competitors=n_compettitors,
+            seed=123456,
             dataset_hash=self.dataset_hash)
-
 
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
@@ -908,13 +892,12 @@ class Agent:
         )
 
         self.test_dataset = Dataset_Gravity(
-            dataset_meta_features=dataset_meta_features, 
-            learning_curves=test_learning_curves, 
-            algorithms_meta_features=algorithms_meta_features, 
-            no_competitors=n_compettitors, 
-            seed=123456, 
+            dataset_meta_features=dataset_meta_features,
+            learning_curves=test_learning_curves,
+            algorithms_meta_features=algorithms_meta_features,
+            no_competitors=n_compettitors,
+            seed=123456,
             dataset_hash=self.dataset_hash)
-
 
         self.test_dataloader = DataLoader(
             self.test_dataset,
@@ -944,7 +927,6 @@ class Agent:
         elif training == 'schedule':
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
-
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
@@ -1029,8 +1011,8 @@ class Agent:
             self.obs_performances[str(A)] = R
 
         trials = sum(1 if t != 0 else 0 for t in self.times.values())
-        A = self.learned_rankings[trials%self.suggest_topk]
-        
+        A = self.learned_rankings[trials % self.suggest_topk]
+
         delta_t = self.budgets[A]
 
         # Fixme: Negative values of delta_t encountered
