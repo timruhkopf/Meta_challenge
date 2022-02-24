@@ -127,7 +127,6 @@ class Agent:
             topk=self.nA
         )[0].tolist()
 
-
     def meta_train(self,
                    dataset_meta_features,
                    algorithms_meta_features,
@@ -271,6 +270,14 @@ class Agent:
         self.meta_train_convergence_speed(confidence=0.9)
         self.meta_train_initial_budgets(confidence=0.8)
 
+        # sanity check: would we surpass a timestamp (and if how many)
+        # predicted_init = self.predict_initial_speed(self.test_dataset.datasets_meta_features_df)
+        # D = self.test_dataset
+        # # D.lc_algos[19], predicted_init[19]
+        # {algo: [sum(soll >= ist) for soll, ist in
+        #         zip(predicted_init[algo], [lc.timestamps for lc in D.lc_algos[algo]])]
+        #  for algo in D.lc_algos.keys()}
+
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.encoder_class[self.encoder](
@@ -364,7 +371,7 @@ class Agent:
 
         prediction_convergence_speed = {}
         for algo in range(self.nA):
-            prediction_convergence_speed[int(algo)] = self.qr_models_init[algo].predict(df)[0]
+            prediction_convergence_speed[int(algo)] = self.qr_models_init[algo].predict(df)
 
         return prediction_convergence_speed
 

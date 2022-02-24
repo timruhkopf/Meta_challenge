@@ -532,7 +532,7 @@ class Dataset_Gravity(Dataset):
 
         return df
 
-    # DEPRECIATE ---------------------------------------------------------------
+    # DEPRECIATED ---------------------------------------------------------------
     # instead use dataset_g2.py's methods
     def preprocess(
             self,
