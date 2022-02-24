@@ -253,8 +253,8 @@ if __name__ == "__main__":
 
         iteration += 1
 
-        if args.mode == 'testing':
-            break
+        # if args.mode == 'testing':
+        #     break
 
     ################################################
 

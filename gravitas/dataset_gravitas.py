@@ -1,13 +1,12 @@
 import random
 
-import pandas as pd
-import numpy as np
-import torch
-from torch.utils.data import Dataset
-from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
-
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
+import torch
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+from torch.utils.data import Dataset
 
 
 class Dataset_Gravity(Dataset):
@@ -419,7 +418,13 @@ class Dataset_Gravity(Dataset):
         """
         self.no_competitors = no_competitors
         self.deselect = deselect
+
+        # DEPRECIATE
         self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
+
+        # new version of preprocessing
+        self.preprocess_learning_curves(learning_curves)
+        self._calc_timestamp_distribution(2)
 
         if deselect > 0:
             self.deselected = self._reduce_algo_space(removals=deselect, k=topk, mode=deselection_metric)
@@ -463,6 +468,72 @@ class Dataset_Gravity(Dataset):
 
         return D0, D1, A0, A1
 
+    def preprocess_learning_curves(self, learning_curves):
+        """
+        facilitate later calculations on learning curves:
+        For scalar calculations use self.lc and assign a new attribute for a calculated
+        scalar property
+        for algorithm aggregations use self.lc_algos
+        for dataset aggregations use self.lc_datasets
+        :param learning_curves:
+
+        """
+        ids_algos = learning_curves[list(learning_curves.keys())[0]].keys()
+        self.ids_algos = [int(i) for i in ids_algos]
+        self.ids_datasets = list(learning_curves.keys())
+
+        self.lc = {(d, int(a)): lc for d, algos in learning_curves.items()
+                   for a, lc in algos.items()}
+
+        # ensure correct ordering
+        dataset_major = sorted(self.lc.keys(), key=lambda tup: tup[0])
+        algo_major = sorted(self.lc.keys(), key=lambda tup: tup[1])
+
+        # lookup object ids based on aggregation
+        self.algos = {a: [k for k in dataset_major if k[1] == a]
+                      for a in self.ids_algos}
+        self.datasets = {d: [k for k in algo_major if k[0] == d]
+                         for d in self.ids_datasets}
+
+        # lookup actual object based on aggregation
+        self.lc_algos = {a: [self.lc[k] for k in dataset_major if k[1] == a]
+                         for a in self.ids_algos}
+        self.lc_datasets = {d: [self.lc[k] for k in algo_major if k[0] == d]
+                            for d in self.ids_datasets}
+
+        # add identifier to lc object
+        for k, lc in self.lc.items():
+            lc.id = k
+
+    def _aggregate_scalars_to_df(self, scalar: str):
+        """
+        read out the attribute from all the learning curves and create a dataframe
+        from it.
+        :param scalar:str. must be existing attribute to the learning curves.
+        :return: pd.DataFrame (datasets, algorithms)
+        """
+        # create a dataframe out of it
+        dataset_dict = {}
+        for d, algos in self.lc_datasets.items():
+            dataset_dict[d] = [lc.__dict__[scalar] for lc in algos]
+
+        return pd.DataFrame.from_dict(dataset_dict, orient='index')
+
+    def _calc_timestamp_distribution(self, stamp: int):
+
+        for lc in self.lc.values():
+            lc.tmp = lc.timestamps[stamp]
+
+        df = self._aggregate_scalars_to_df('tmp')
+
+        # clean up
+        for lc in self.lc.values():
+            delattr(lc, 'tmp')
+
+        return df
+
+    # DEPRECIATE ---------------------------------------------------------------
+    # instead use dataset_g2.py's methods
     def preprocess(
             self,
             dataset_meta_features,

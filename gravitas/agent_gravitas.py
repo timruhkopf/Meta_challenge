@@ -1,5 +1,3 @@
-from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
-import torch
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
@@ -120,13 +118,15 @@ class Agent:
 
         # NOTE: Is this required in the RL setting?
         # set delta_t's (i.e. budgets for each algo we'd like to inquire)
-        self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
+        # self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
+        self.budgets = self.predict_initial_speed(dataset_meta_features_df_testing)
 
         # predict the ranking of algorithms for this dataset
         self.learned_rankings = self.model.predict_algorithms(
             dataset_meta_feature_tensor_testing,
             topk=self.nA
         )[0].tolist()
+
 
     def meta_train(self,
                    dataset_meta_features,
@@ -269,6 +269,7 @@ class Agent:
 
         # meta_learn convergence speed
         self.meta_train_convergence_speed(confidence=0.9)
+        self.meta_train_initial_budgets(confidence=0.8)
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -329,6 +330,20 @@ class Agent:
             self.qr_models[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
             self.qr_models[algo].fit(X, Y[algo])
 
+    def meta_train_initial_budgets(self, confidence=0.8):
+        """
+        Since the enviroment penalizes allocating to little budget for the first step,
+        we calculate the second timestamp's distribution to ensure we have hit the first one
+        """
+        print('Training 2nd initial budget')
+        X = self.valid_dataset.datasets_meta_features_df
+        Y = self.valid_dataset._calc_timestamp_distribution(2)
+
+        self.qr_models_init = {k: None for k in Y.columns}
+        for algo in Y.columns:
+            self.qr_models_init[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
+            self.qr_models_init[algo].fit(X, Y[algo])
+
     def predict_convergence_speed(self, df):
         """Predict the 90% convergence time budget we would like to allocate for each algorithm
         requires meta_train_convergence_speed"""
@@ -338,6 +353,18 @@ class Agent:
         prediction_convergence_speed = {}
         for algo in range(self.nA):
             prediction_convergence_speed[int(algo)] = self.qr_models[str(algo)].predict(df)[0]
+
+        return prediction_convergence_speed
+
+    def predict_initial_speed(self, df):
+        """Predict the 90% convergence time budget we would like to allocate for each algorithm
+        requires meta_train_convergence_speed"""
+        if not hasattr(self, 'qr_models'):
+            raise ValueError('meta_train_convergence_speed must be executed beforehand')
+
+        prediction_convergence_speed = {}
+        for algo in range(self.nA):
+            prediction_convergence_speed[int(algo)] = self.qr_models_init[algo].predict(df)[0]
 
         return prediction_convergence_speed
 
