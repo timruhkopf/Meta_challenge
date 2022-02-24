@@ -1,9 +1,9 @@
-import torch
-import torch.nn as nn
-import torch.distributions as td
-from tqdm import tqdm
-
 from typing import List
+
+import torch
+import torch.distributions as td
+import torch.nn as nn
+from tqdm import tqdm
 
 from gravitas.base_encoder import BaseEncoder
 
@@ -39,7 +39,6 @@ class AE(BaseEncoder):
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
 
-        self._build_network()
         self.cossim = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
 
         # initialize the algorithms in embedding space
@@ -49,6 +48,7 @@ class AE(BaseEncoder):
             td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
         )
 
+        self._build_network()
         self.to(self.device)
 
     def _build_network(self) -> None:

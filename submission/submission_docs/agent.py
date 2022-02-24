@@ -1,5 +1,22 @@
 import os
+import random
 import warnings
+from abc import abstractmethod
+from typing import List
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
+import torch.distributions as td
+import torch.nn as nn
+from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
+
+
+# import seaborn as sns
 
 
 def check_diversity(representation, title, epsilon=0.01):
@@ -29,16 +46,6 @@ def check_or_create_dir(dir):
 
     else:
         print(dir, "folder already exists.")
-
-
-import random
-
-import pandas as pd
-import numpy as np
-from torch.utils.data import Dataset
-from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
-
-# import seaborn as sns
 
 
 class Dataset_Gravity(Dataset):
@@ -850,19 +857,6 @@ class Dataset_Gravity(Dataset):
         plt.show()
 
 
-from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
-from torch.utils.data import DataLoader
-
-import matplotlib.pyplot as plt
-
-import torch
-import torch.nn as nn
-
-from typing import List
-
-from abc import abstractmethod
-
-
 class BaseEncoder(nn.Module):
     """
     Base class for encoders thtat are used to get latent representations
@@ -1196,13 +1190,6 @@ class AE(BaseEncoder):
         self.train()
 
         return top_algo
-
-
-import torch
-import torch.nn as nn
-import torch.distributions as td
-
-from typing import List
 
 
 class VAE(AE):

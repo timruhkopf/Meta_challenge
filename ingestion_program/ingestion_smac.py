@@ -12,6 +12,7 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir)
 
 import logging
+import time
 
 from ingestion_program.environment import Meta_Learning_Environment
 
@@ -33,7 +34,7 @@ parser = argparse.ArgumentParser()
 # Make sure to set up in this files parent directory!
 parser.add_argument("--hours", type=float, default=0.1,
                     help="hours allocated to smac")
-parser.add_argument("--encoder", type=str, choices=['AE', 'VAE'], default='AE',
+parser.add_argument("--encoder", type=str, choices=['AE', 'VAE'], default='VAE',
                     help="hours allocated to smac")
 parser.add_argument("--training", type=str, choices=['schedule', 'gravity'], default='schedule',
                     help="the Autoencoder training procdure applied in (Agent.meta_training)")
@@ -59,6 +60,12 @@ default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
 default_submission_dir = os.path.join(root_dir, "submission/")
+smac_dir = default_output_dir[:-1] + '_smac/'
+
+import os
+
+if not os.path.exists(smac_dir):
+    os.makedirs(smac_dir)
 
 
 def vprint(mode, t):
@@ -308,6 +315,11 @@ def tae(config, budget):
 
         # META-TRAINING-----------
         trained_agent = meta_training(agent, D_tr, env, encoder_config=config, epochs=budget)
+        try:
+            diversity = trained_agent.measure_embedding_diversity()
+        except Exception as e:
+            print(f'Encountered error during diversity measure:\n{e}\n when using config: {config}')
+            diversity = None
 
         # precompute ground trugh labels:
         # get ground truth label
@@ -332,10 +344,10 @@ def tae(config, budget):
             # agent.reset will already trigger a prediction on the new dataset
             trained_agent.reset(dataset_meta_features, algorithms_meta_features)
             holdout_rankings.append(trained_agent.learned_rankings)
-            holdout_rankings_truth.append(ground_truth_rankings.loc[int(dataset_name), :])
+            holdout_rankings_truth.append(ground_truth_rankings.loc[dataset_name, :])
 
             # get the embedding distances (score for ndcg loss)
-            d_index = meta_test_dataset.datasets_meta_features_df.index.tolist().index(int(dataset_name))
+            d_index = meta_test_dataset.datasets_meta_features_df.index.tolist().index(dataset_name)
             d_new = meta_test_dataset.datasets_meta_features[d_index].reshape(1, -1)
             d_new = d_new.to(agent.model.device)
             agent.model.eval()
@@ -362,7 +374,7 @@ def tae(config, budget):
         iteration += 1
     print()
     # average across holdout_scores
-    return 1 - (sum(holdout_losses_ndcg) / len(holdout_losses_ndcg))  # no_splits=6
+    return 1 - (sum(holdout_losses_ndcg) / len(holdout_losses_ndcg)), {'diversity': diversity}  # no_splits=6
 
 
 if __name__ == '__main__':
@@ -378,7 +390,7 @@ if __name__ == '__main__':
          UniformIntegerHyperparameter('deselect', 0, 10, default_value=5),
          # CategoricalHyperparameter('deselection_metric', choices=[''] ),
          UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3),
-         UniformFloatHyperparameter('repellent_share', 0., .8, default_value=0.33),
+         UniformFloatHyperparameter('repellent_share', .2, .8, default_value=0.33),
          UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.),
          UniformFloatHyperparameter('lossweight2', 0., 10., default_value=1.),
          UniformFloatHyperparameter('lossweight3', 0., 10., default_value=1.),
@@ -399,7 +411,7 @@ if __name__ == '__main__':
         # Then you should handle runtime and memory yourself in the TA
         # 'cutoff': 3500,  # runtime limit for target algorithm
         # 'memory_limit': 3072,  # adapt this to reasonable value for your hardware
-        'output_dir': default_output_dir + args.encoder,
+        'output_dir': smac_dir + args.encoder + str(time.time()),
         'save_instantly': True
     })
 

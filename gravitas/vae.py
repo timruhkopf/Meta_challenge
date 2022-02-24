@@ -1,54 +1,49 @@
 import torch
 import torch.nn as nn
-import torch.distributions as td
-from tqdm import tqdm
-
-from typing import List
-import pdb
-
 
 from gravitas.autoencoder import AE
 
+
 class VAE(AE):
     # TODO allow for algo meta features
-    def __init__(
-        self,
-        input_dim: int = 10,
-        hidden_dims: List[int] = [8,4],
-        embedding_dim: int = 2,
-        weights: List[float]=[1.0, 1.0, 1.0, 1.0],
-        repellent_share: float =0.33,
-        n_algos: int =20,
-        device=None,
-    ):
-        """
-
-        :param nodes: list of number of nodes from input to output
-        :param weights: list of floats indicating the weights in the loss:
-        reconstruction, algorithm pull towards datasets, data-similarity-attraction,
-        data-dissimilarity-repelling.
-        :param n_algos: number of algorithms to place in the embedding space
-        """
-        super().__init__()
-        self.device = device
-        self.weights = torch.tensor(weights).to(device)
-        self.repellent_share = repellent_share
-
-        # construct the autoencoder
-        self.embedding_dim = embedding_dim
-        self.input_dim = input_dim
-        self.hidden_dims = hidden_dims
-
-        self._build_network()
-
-        # initialize the algorithms in embedding space
-        self.n_algos = n_algos
-        self.embedding_dim = self.embedding_dim
-        self.Z_algo = nn.Parameter(
-            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
-        )
-
-        self.to(self.device)
+    # def __init__(
+    #     self,
+    #     input_dim: int = 10,
+    #     hidden_dims: List[int] = [8,4],
+    #     embedding_dim: int = 2,
+    #     weights: List[float]=[1.0, 1.0, 1.0, 1.0],
+    #     repellent_share: float =0.33,
+    #     n_algos: int =20,
+    #     device=None,
+    # ):
+    #     """
+    #
+    #     :param nodes: list of number of nodes from input to output
+    #     :param weights: list of floats indicating the weights in the loss:
+    #     reconstruction, algorithm pull towards datasets, data-similarity-attraction,
+    #     data-dissimilarity-repelling.
+    #     :param n_algos: number of algorithms to place in the embedding space
+    #     """
+    #     super().__init__()
+    #     self.device = device
+    #     self.weights = torch.tensor(weights).to(device)
+    #     self.repellent_share = repellent_share
+    #
+    #     # construct the autoencoder
+    #     self.embedding_dim = embedding_dim
+    #     self.input_dim = input_dim
+    #     self.hidden_dims = hidden_dims
+    #
+    #     self._build_network()
+    #
+    #     # initialize the algorithms in embedding space
+    #     self.n_algos = n_algos
+    #     self.embedding_dim = self.embedding_dim
+    #     self.Z_algo = nn.Parameter(
+    #         td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
+    #     )
+    #
+    #     self.to(self.device)
 
     def _build_network(self) -> None:
         """

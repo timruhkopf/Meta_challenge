@@ -1,11 +1,22 @@
+import argparse
 import os
 import random
 import shutil
-from sys import argv, path
+from sys import path
 
 from sklearn.model_selection import KFold
 
 from environment import Meta_Learning_Environment
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--epochs", type=int, default=10,
+                    help="epochs used for every part of the main training")
+parser.add_argument("--pretrain_epochs", type=int, default=10,
+                    help="epochs used for pretraining")
+parser.add_argument("--mode", type=str, choices=['testing', 'submission'], default='testing',
+                    help="whether to use agent_gravitas or patched submission agent script")
+
+args = parser.parse_args()
 
 # === Verbose mode
 verbose = False
@@ -101,7 +112,9 @@ def meta_training(agent, D_tr):
     # === Start meta-traning the agent
     vprint(verbose, datasets_meta_features)
     vprint(verbose, algorithms_meta_features)
-    agent.meta_train(datasets_meta_features, algorithms_meta_features, validation_learning_curves, test_learning_curves)
+    agent.meta_train(datasets_meta_features, algorithms_meta_features, validation_learning_curves,
+                     test_learning_curves,
+                     epochs=args.epochs, pretrain_epochs=args.pretrain_epochs)
 
     vprint(verbose, "[+]Finished META-TRAINING phase")
 
@@ -161,24 +174,24 @@ def meta_testing(trained_agent, D_te):
 
 if __name__ == "__main__":
     # === Get input and output directories
-    if len(argv) == 1:  # Use the default input and output directories if no arguments are provided
-        input_dir = default_input_dir
-        output_dir = default_output_dir
-        program_dir = default_program_dir
-        submission_dir = default_submission_dir
-        validation_data_dir = os.path.join(input_dir, 'valid')
-        test_data_dir = os.path.join(input_dir, 'test')
-        meta_features_dir = os.path.join(input_dir, 'dataset_meta_features')
-        algorithms_meta_features_dir = os.path.join(input_dir, 'algorithms_meta_features')
-    else:
-        input_dir = os.path.abspath(argv[1])
-        output_dir = os.path.abspath(argv[2])
-        program_dir = os.path.abspath(argv[3])
-        submission_dir = os.path.abspath(argv[4])
-        validation_data_dir = os.path.join(input_dir, 'valid')
-        test_data_dir = os.path.join(input_dir, 'test')
-        meta_features_dir = os.path.join(input_dir, 'dataset_meta_features')
-        algorithms_meta_features_dir = os.path.join(input_dir, 'algorithms_meta_features')
+    # if len(argv) == 1:  # Use the default input and output directories if no arguments are provided
+    input_dir = default_input_dir
+    output_dir = default_output_dir
+    program_dir = default_program_dir
+    submission_dir = default_submission_dir
+    validation_data_dir = os.path.join(input_dir, 'valid')
+    test_data_dir = os.path.join(input_dir, 'test')
+    meta_features_dir = os.path.join(input_dir, 'dataset_meta_features')
+    algorithms_meta_features_dir = os.path.join(input_dir, 'algorithms_meta_features')
+    # else:
+    #     input_dir = os.path.abspath(argv[1])
+    #     output_dir = os.path.abspath(argv[2])
+    #     program_dir = os.path.abspath(argv[3])
+    #     submission_dir = os.path.abspath(argv[4])
+    #     validation_data_dir = os.path.join(input_dir, 'valid')
+    #     test_data_dir = os.path.join(input_dir, 'test')
+    #     meta_features_dir = os.path.join(input_dir, 'dataset_meta_features')
+    #     algorithms_meta_features_dir = os.path.join(input_dir, 'algorithms_meta_features')
 
     vprint(verbose, "Using input_dir: " + input_dir)
     vprint(verbose, "Using output_dir: " + output_dir)
@@ -204,7 +217,12 @@ if __name__ == "__main__":
     # === Import the agent submitted by the participant
     path.append(submission_dir)
     # from gravitas.agent_gravitas import Agent
-    from submission.submission_docs.agent import Agent
+
+    # choosing the agent to run
+    from submission.submission_docs.agent import Agent as Agent_submission
+    from gravitas.agent_gravitas import Agent as Agent_gravitas
+
+    agents = {'submission': Agent_submission, 'testing': Agent_gravitas}
 
     # === Clear old output
     clear_output_dir(output_dir)
@@ -225,7 +243,7 @@ if __name__ == "__main__":
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 
         # Init a new agent instance in each iteration
-        agent = Agent(number_of_algorithms=len(list_algorithms))
+        agent = agents[args.mode](number_of_algorithms=len(list_algorithms))
 
         # === META-TRAINING
         trained_agent = meta_training(agent, D_tr)
@@ -234,7 +252,10 @@ if __name__ == "__main__":
         meta_testing(trained_agent, D_te)
 
         iteration += 1
-        # break
+
+        if args.mode == 'testing':
+            break
+
     ################################################
 
 # === For debug only

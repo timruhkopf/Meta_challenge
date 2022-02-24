@@ -1,13 +1,17 @@
 from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
 import torch
+import matplotlib.pyplot as plt
+import pandas as pd
+import torch
+from networkx import *
+from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
 from torch.utils.data import DataLoader
 
-import matplotlib.pyplot as plt
-
+# FIXME: remove this block for agent_submission
 from gravitas.autoencoder import AE
-from gravitas.vae import VAE
 from gravitas.dataset_gravitas import Dataset_Gravity
-from gravitas.utils import check_diversity, check_or_create_dir
+from gravitas.utils import check_diversity  #
+from gravitas.vae import VAE
 
 
 class Agent:
@@ -333,7 +337,7 @@ class Agent:
 
         prediction_convergence_speed = {}
         for algo in range(self.nA):
-            prediction_convergence_speed[int(algo)] = self.qr_models[str(algo)].predict(df)
+            prediction_convergence_speed[int(algo)] = self.qr_models[str(algo)].predict(df)[0]
 
         return prediction_convergence_speed
 
@@ -387,7 +391,7 @@ class Agent:
         A = self.learned_rankings[trials % self.suggest_topk]
         A_star = A
 
-        delta_t = self.budgets[A][0]
+        delta_t = self.budgets[A]
 
         # Fixme: Negative values of delta_t encountered
         # in some cases, need to be fixed
@@ -493,3 +497,37 @@ class Agent:
             plt.savefig(
                 f'{self.root_dir}/output/{self.encoder}_embedding_pca.png',
             )
+
+    def measure_embedding_diversity(self):
+        """
+        Calculate the diversity based on euclidiean minimal spanning tree
+        :return:  diversity for datasets, diversity for algos
+        """
+
+        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
+        d_test = self.model.encode(D_test)
+        z_algo = self.model.Z_algo
+
+        d_test_tree = self._calc_min_eucl_spanning_tree(d_test)
+        z_algo_tree = self._calc_min_eucl_spanning_tree(z_algo)
+
+        d_diversity = sum([tup[2]['weight'] for tup in d_test_tree])
+        z_diversity = sum([tup[2]['weight'] for tup in z_algo_tree])
+
+        # sum of weighted edges
+        return d_diversity, z_diversity
+
+    def _calc_min_eucl_spanning_tree(self, d_test: torch.tensor):
+        dist_mat = torch.cdist(d_test, d_test)
+        dist_mat = dist_mat.cpu().detach().numpy()
+
+        nodes = list(range(len(dist_mat)))
+        d = [(src, dst, dist_mat[src, dst]) for src in nodes for dst in nodes if src != dst]
+
+        df = pd.DataFrame(data=d, columns=['src', 'dst', 'eucl'])
+
+        g = Graph()
+        for index, row in df.iterrows():
+            g.add_edge(row['src'], row['dst'], weight=row['eucl'])
+
+        return list(minimum_spanning_edges(g))  # fixme: VAE produces NAN sometimes
