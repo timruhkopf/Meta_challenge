@@ -441,7 +441,7 @@ class Dataset_Gravity(Dataset):
 
     def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features,
                  no_competitors=11,
-                 deselect=0, topk=10, deselection_metric='skew', seed=123456, ):
+                 deselect=0, topk=5, deselection_metric='skew', seed=123456, ):
         """
 
         :param dataset_meta_features:
@@ -638,7 +638,11 @@ class Dataset_Gravity(Dataset):
         categorical_df = pd.DataFrame(categorical_df, columns=self.enc_cat.get_feature_names(),
                                       index=dataset_meta_features.keys())
 
-        self.datasets_meta_features_df = pd.concat([numerical_df, categorical_df, binary_df], axis=1)
+        self.datasets_meta_features_df = pd.concat([
+                                            numerical_df, 
+                                            # categorical_df, 
+                                            binary_df
+                                        ], axis=1)
         self.n_features = len(self.datasets_meta_features_df.columns)
         self.datasets_meta_features = torch.tensor(
             self.datasets_meta_features_df.values, dtype=torch.float32)
@@ -661,7 +665,11 @@ class Dataset_Gravity(Dataset):
         categorical_df = self.enc_cat.transform(categorical_df)
         categorical_df = pd.DataFrame(categorical_df, columns=self.enc_cat.get_feature_names())
 
-        self.datasets_meta_features_df = pd.concat([numerical_df, categorical_df, binary_df], axis=1)
+        self.datasets_meta_features_df = pd.concat([
+                                            numerical_df, 
+                                            # categorical_df, 
+                                            binary_df
+                                        ], axis=1)
         self.n_features = len(self.datasets_meta_features_df.columns)
         self.datasets_meta_features = torch.tensor(
             self.datasets_meta_features_df.values, dtype=torch.float32)
@@ -1312,7 +1320,10 @@ class VAE(AE):
 
 
 class Agent:
-    encoder_class = {'AE': AE, 'VAE': VAE}
+    encoder_class = {
+                        'AE': AE, 
+                        'VAE': VAE
+                    }
 
     def __init__(
             self,
@@ -1431,16 +1442,19 @@ class Agent:
                    validation_learning_curves,
                    test_learning_curves,
                    # set up the encoder architecture
-                   epochs=10,
-                   pretrain_epochs=50,
+                   epochs=100,
+                   pretrain_epochs=100,
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
                    repellent_share=0.33,
-                   deselect=0, topk=10, deselection_metric='skew',
-                   training='schedule'):
+                   deselect=5, 
+                   topk=5, 
+                   deselection_metric='skew',
+                   training='schedule'
+                ):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -1565,7 +1579,7 @@ class Agent:
         #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
 
         # meta_learn convergence speed
-        self.meta_train_convergence_speed(confidence=0.9)
+        self.meta_train_convergence_speed(confidence=0.2)
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1688,7 +1702,7 @@ class Agent:
         A = self.learned_rankings[trials % self.suggest_topk]
         A_star = A
 
-        delta_t = self.budgets[A][0]
+        delta_t = self.budgets[A][0] * 0.5
 
         # Fixme: Negative values of delta_t encountered
         # in some cases, need to be fixed
