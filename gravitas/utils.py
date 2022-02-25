@@ -1,6 +1,8 @@
-import numpy as np
 import os
 import warnings
+
+import numpy as np
+
 
 def check_diversity(representation, title, epsilon=0.01):
     """
