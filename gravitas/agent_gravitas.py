@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
-#from networkx import *
+from networkx import *
 from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
 from torch.utils.data import DataLoader
 
@@ -41,7 +41,6 @@ class Agent:
         """
 
         self.nA = number_of_algorithms
-        self.times = [0.] * self.nA
         self.encoder = encoder
         self.seed = seed
 
@@ -113,6 +112,7 @@ class Agent:
         dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
 
         # actual resetting
+        self.visits = {k: 0 for k in algorithms_meta_features.keys()}
         self.times = {k: 0. for k in algorithms_meta_features.keys()}
         self.obs_performances = {k: 0. for k in algorithms_meta_features.keys()}
 
@@ -267,7 +267,7 @@ class Agent:
         #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
 
         # meta_learn convergence speed
-        self.meta_train_convergence_speed(confidence=0.9)
+        self.meta_train_convergence_speed(confidence=0.2)
         self.meta_train_initial_budgets(confidence=0.8)
 
         # sanity check: would we surpass a timestamp (and if how many)
@@ -410,30 +410,34 @@ class Agent:
         >>> action
         (9, 9, 80)
         """
-        # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
 
-        # FIXME: Query: C_A: we cannot only log the delta_t, because the actual time
-        #  spent wont be incremented by delta_t - but only by the timestamp.
-        #  in fact we need to track C_A to know how much budget should
+        trials = sum(self.visits.values())
+        counter = trials % self.suggest_topk  # RoundRobin counter
+        self.A = self.learned_rankings[counter]
+
         # keep track of spent budget & observed performances
-        if observation is not None:  # initial observation is None
+        if observation is None:
+            # (0) initial selection of A_star
+            self.A_star = self.learned_rankings[0]
+
+        else:
+            # normal state
+            # (1) update state information
             A, C_A, R = observation
+            self.visits[str(A)] += 1
             self.times[str(A)] += C_A
             self.obs_performances[str(A)] = R
 
-        trials = sum(1 if t != 0 else 0 for t in self.times.values())
-        A = self.learned_rankings[trials % self.suggest_topk]
-        A_star = A
+            # (2) check if we have a new incumbent
+            # TODO get a time discounting in here (because A_star has more time
+            #  allocated already than A)
+            if self.obs_performances[str(self.A)] > self.obs_performances[str(self.A_star)]:
+                self.A_star = self.A
 
-        delta_t = self.budgets[A]
+        # Assign the time budget for the chosen algorithm
+        delta_t = self.budgets[self.A][0] * 0.5
 
-        # Fixme: Negative values of delta_t encountered
-        # in some cases, need to be fixed
-        if delta_t < 0:
-            delta_t = 10
-
-        action = (A, A, delta_t)
-
+        action = (self.A_star, self.A, delta_t)
         return action
 
     def plot_encoder_training(self, losses, ):

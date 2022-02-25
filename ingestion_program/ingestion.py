@@ -219,7 +219,7 @@ if __name__ == "__main__":
     # from gravitas.agent_gravitas import Agent
 
     # choosing the agent to run
-    from submission.submission_docs.agent import Agent as Agent_submission
+    from submission.submission_docs.agent_adi import Agent as Agent_submission
     from gravitas.agent_gravitas import Agent as Agent_gravitas
 
     agents = {'submission': Agent_submission, 'testing': Agent_gravitas}
@@ -228,7 +228,8 @@ if __name__ == "__main__":
     clear_output_dir(output_dir)
 
     # === Init K-folds cross-validation
-    kf = KFold(n_splits=6, shuffle=False)
+    folds = 6 if args.mode == 'submission' else 2
+    kf = KFold(n_splits=folds, shuffle=False)
 
     ################## MAIN LOOP ##################
     # === Init a meta-learning environment
