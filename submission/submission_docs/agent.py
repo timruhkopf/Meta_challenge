@@ -1320,7 +1320,7 @@ class Agent:
             encoder: str = "AE",
             seed=123546,
             root_dir='',
-            suggest_topk=2
+            suggest_topk=5
     ):
         """
         Initialize the agent
@@ -1346,6 +1346,7 @@ class Agent:
 
         self.root_dir = root_dir
         self.suggest_topk = suggest_topk
+        self.counter = 0
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -1431,15 +1432,17 @@ class Agent:
                    validation_learning_curves,
                    test_learning_curves,
                    # set up the encoder architecture
-                   epochs=10,
-                   pretrain_epochs=50,
+                   epochs=1000,
+                   pretrain_epochs=1000,
                    batch_size=9,
                    n_compettitors=11,
                    lr=0.001,
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
                    repellent_share=0.33,
-                   deselect=0, topk=10, deselection_metric='skew',
+                   deselect=0, 
+                   topk=10, 
+                   deselection_metric='skew',
                    training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
@@ -1565,7 +1568,7 @@ class Agent:
         #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
 
         # meta_learn convergence speed
-        self.meta_train_convergence_speed(confidence=0.9)
+        self.meta_train_convergence_speed(confidence=0.2)
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1673,29 +1676,44 @@ class Agent:
         >>> action
         (9, 9, 80)
         """
-        # TODO predict which algorithms are likely too succeed: (ONCE)  <-- maybe in self.reset?
 
-        # FIXME: Query: C_A: we cannot only log the delta_t, because the actual time
-        #  spent wont be incremented by delta_t - but only by the timestamp.
-        #  in fact we need to track C_A to know how much budget should
-        # keep track of spent budget & observed performances
-        if observation is not None:  # initial observation is None
-            A, C_A, R = observation
-            self.times[str(A)] += C_A
-            self.obs_performances[str(A)] = R
+        #trials = sum(1 if t != 0 else 0 for t in self.times.values())
+                
 
-        trials = sum(1 if t != 0 else 0 for t in self.times.values())
-        A = self.learned_rankings[trials % self.suggest_topk]
-        A_star = A
+        # If the counter is 0, initialize A_star = A
+        if self.counter == 0:
+            self.A_star = self.learned_rankings[self.counter]
+            self.A = self.learned_rankings[self.counter]
+        
+        #Otherwise, only update A
+        else: 
 
-        delta_t = self.budgets[A][0]
+            if observation is not None:  # initial observation is None
+                A, C_A, R = observation
+                self.times[str(A)] += C_A
+                self.obs_performances[str(A)] = R
+                self.A = A
+            # If A performed better than A_star, update A_star
+            if self.obs_performances[str(self.A)] > self.obs_performances[str(self.A_star)]:
+                self.A_star = self.A
+
+            # Get the new value of A
+            self.A = self.learned_rankings[self.counter]
+
+
+        # Assign the time budget for the chosen algorithm
+        delta_t = self.budgets[self.A][0]*0.5
 
         # Fixme: Negative values of delta_t encountered
         # in some cases, need to be fixed
         if delta_t < 0:
             delta_t = 10
 
-        action = (A, A, delta_t)
+        action = (self.A_star, self.A, delta_t)
+        self.counter += 1
+
+        if self.counter == self.suggest_topk:
+            self.counter = 0
 
         return action
 
