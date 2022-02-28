@@ -790,7 +790,7 @@ class Dataset_Gravity(Dataset):
 
         def calc_pdf_integral0(data, n_bins):
             """
-
+            Calculate the probability mass of x <= 0
             :param data:
             :param n_bins:
             :return: probability of below x=0
@@ -825,6 +825,7 @@ class Dataset_Gravity(Dataset):
                 performances[algo] = performance_baseline - (current_df.max(axis=1) - absolute_perf)
 
             if mode == 'skew':
+                # FIXME: how can improve against the mean? only if we dont fill up the selection
                 # remove the algo, that reduces the skewness of the baseline the most
                 skew = pd.DataFrame(performances).skew(axis=0)
                 deselected_algo = skew.index[np.argmin(skew_baseline - skew)]

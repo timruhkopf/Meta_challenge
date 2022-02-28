@@ -6,6 +6,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from gravitas.base_encoder import BaseEncoder
+from gravitas.utils import freeze
 
 
 class AE(BaseEncoder):
@@ -30,7 +31,7 @@ class AE(BaseEncoder):
         """
         super().__init__()
         self.device = device
-        weights = [weights[0], *weights[2:], weights[1]] # fixme: change the doc instead!
+        weights = [weights[0], *weights[2:], weights[1]]  # fixme: change the doc instead!
         self.weights = torch.tensor(weights).to(device)
         self.repellent_share = repellent_share
 
@@ -78,6 +79,7 @@ class AE(BaseEncoder):
         # Make the decoder
         modules = []
 
+        # fixme: this is an inplace change on self.hidden_dims!
         hidden_dims.reverse()
         input_dim = self.latent_dim
 
@@ -182,7 +184,7 @@ class AE(BaseEncoder):
         gravity = self._loss_datasets(
             D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
 
-        return torch.stack([gravity, self.weights[-1] * algo_pull,])
+        return torch.stack([gravity, self.weights[-1] * algo_pull, ])
 
     def train_gravity(self, train_dataloader, test_dataloader, epochs, lr=0.001):
         """
@@ -197,10 +199,10 @@ class AE(BaseEncoder):
         """
         name = self.__class__.__name__
         print(f'\nPretraining {name} with reconstruction loss: ')
-        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0])
+        self._train(epochs[0], self._loss_reconstruction, train_dataloader, test_dataloader)
 
         print(f'\nTraining {name} with gravity loss:')
-        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs[1], lr=lr)
+        return self._train(epochs[1], self.loss_gravity, train_dataloader, test_dataloader, lr=lr)
 
     def train_schedule(self, train_dataloader, test_dataloader, epochs=[100, 100, 100], lr=0.001):
         # Consider Marius idea to first find a reasonable data representation
@@ -209,23 +211,52 @@ class AE(BaseEncoder):
         # pretrain
         name = self.__class__.__name__
         print(f'\nPretraining {name} with reconstruction loss:')
-        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0], lr)
+        self._train(epochs[0], self._loss_reconstruction, train_dataloader, test_dataloader, lr)
 
         # train datasets
         print(f'\nTraining {name} with dataset loss:')
-        self._train(self._loss_datasets, train_dataloader, test_dataloader, epochs[1], lr)
+        # self._train(self._loss_datasets, train_dataloader, test_dataloader, epochs=epochs[1], lr=lr)
+        self.freeze_train(epochs[1], self._loss_datasets, train_dataloader, test_dataloader, lr)
 
         # train algorithms
         print(f'\nTraining {name} with algorithm:')
-        return self._train(self._loss_algorithms, train_dataloader, test_dataloader, epochs[2], lr)
+        return self._train(epochs[2], self._loss_algorithms, train_dataloader, test_dataloader, lr)
 
+    def freeze_train(self, epochs, *args):
+        """
+        unfreeze from the outer to the inner of the autoencoder
+        :param epochs: total epochs that are to be trained
+        :param args: args passed to _train()
+        """
+        # find those layers that need to be frozen
+        enc = [l for l in self.encoder if isinstance(l, nn.Linear)]
+        dec = [l for l in reversed(self.decoder) if isinstance(l, nn.Linear)]
 
-    def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
+        enc_bn = [l for l in self.encoder if isinstance(l, nn.BatchNorm1d)]
+        dec_bn = [l for l in reversed(self.encoder) if isinstance(l, nn.BatchNorm1d)]
+
+        # linear intervals for unfreezing
+        no_freeze_steps = len(enc)
+
+        # freeze all intermediate layers
+        freeze([*enc, *dec, *enc_bn, *dec_bn], unfreeze=False)
+
+        # scheduler for the layers that are iteratively unfrozen
+        unfreezer = zip(enc, dec, enc_bn, dec_bn)
+
+        for i in range(no_freeze_steps):
+            # determine which layers are melted
+            en, de, ebn, dbn = unfreezer.__next__()
+            freeze([en, de, ebn, dbn], unfreeze=True)
+            self._train(epochs // no_freeze_steps, *args)
+
+    def _train(self, epochs, loss_fn, train_dataloader, test_dataloader, lr=0.001):
         losses = []
         test_losses = []
 
         tracking = []
-        optimizer = torch.optim.Adam(self.parameters(), lr)
+        # check that only require_grad tensors are optimized (used for freezing)
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr)
         for e in tqdm(range(epochs)):
             for i, data in enumerate(train_dataloader):
                 D0, D1, A0, A1 = data
@@ -266,7 +297,7 @@ class AE(BaseEncoder):
             #
             #     tracking.append((self.Z_algo.data.clone(), Z_data))
 
-                # TODO validation procedure
+            # TODO validation procedure
 
         return tracking, losses, test_losses
 

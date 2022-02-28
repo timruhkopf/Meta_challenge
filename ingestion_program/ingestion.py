@@ -13,7 +13,7 @@ parser.add_argument("--epochs", type=int, default=10,
                     help="epochs used for every part of the main training")
 parser.add_argument("--pretrain_epochs", type=int, default=10,
                     help="epochs used for pretraining")
-parser.add_argument("--mode", type=str, choices=['testing', 'submission'], default='submission',
+parser.add_argument("--mode", type=str, choices=['testing', 'submission'], default='testing',
                     help="whether to use agent_gravitas or patched submission agent script")
 
 args = parser.parse_args()

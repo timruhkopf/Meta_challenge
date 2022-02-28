@@ -4,6 +4,13 @@ import warnings
 import numpy as np
 
 
+def freeze(listoflayers, unfreeze=True):
+    """freeze the parameters of the list of layers """
+    for l in listoflayers:
+        for p in l.parameters():
+            p.requires_grad = unfreeze
+
+
 def check_diversity(representation, title, epsilon=0.01):
     """
 
