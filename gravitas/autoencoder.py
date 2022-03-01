@@ -6,7 +6,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from gravitas.base_encoder import BaseEncoder
-from gravitas.utils import freeze
+from gravitas.utils import freeze, calc_min_eucl_spanning_tree
 
 
 class AE(BaseEncoder):
@@ -278,6 +278,7 @@ class AE(BaseEncoder):
 
                 # calculate "attracting" forces.
                 loss = loss_fn(D0, D0_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
+                loss += torch.mean(torch.tensor([d['weight'] for _, _, d in calc_min_eucl_spanning_tree(D0_fwd)]))
 
                 # gradient step
                 loss.backward()

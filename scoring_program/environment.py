@@ -1,10 +1,8 @@
 import os
-from sys import argv, path
+from sys import path
 root_dir = os.path.abspath(os.curdir)
 path.append(root_dir)
-import json
 import numpy as np
-import math
 import csv
 from learning_curve import Learning_Curve
 
@@ -174,7 +172,7 @@ class Meta_Learning_Environment():
         algorithms_meta_features : dict of dict of {str : str}
             The meta_features of each algorithm:
                 meta_feature_0 = 1 or 0
-                meta_feature_1 = 0.1, 0.2, 0.3,…, 1.0
+                meta_feature_1 = 0.1, 0.2, 0.3, , 1.0
 
         Examples
         ----------

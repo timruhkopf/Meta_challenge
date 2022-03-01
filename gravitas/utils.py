@@ -2,6 +2,9 @@ import os
 import warnings
 
 import numpy as np
+import pandas as pd
+import torch
+from networkx import Graph, minimum_spanning_edges
 
 
 def freeze(listoflayers, unfreeze=True):
@@ -9,6 +12,22 @@ def freeze(listoflayers, unfreeze=True):
     for l in listoflayers:
         for p in l.parameters():
             p.requires_grad = unfreeze
+
+
+def calc_min_eucl_spanning_tree(d_test: torch.tensor):
+    dist_mat = torch.cdist(d_test, d_test)
+    dist_mat = dist_mat.cpu().detach().numpy()
+
+    nodes = list(range(len(dist_mat)))
+    d = [(src, dst, dist_mat[src, dst]) for src in nodes for dst in nodes if src != dst]
+
+    df = pd.DataFrame(data=d, columns=['src', 'dst', 'eucl'])
+
+    g = Graph()
+    for index, row in df.iterrows():
+        g.add_edge(row['src'], row['dst'], weight=row['eucl'])
+
+    return list(minimum_spanning_edges(g))  # fixme: VAE produces NAN sometimes
 
 
 def check_diversity(representation, title, epsilon=0.01):

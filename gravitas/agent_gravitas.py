@@ -1,14 +1,12 @@
 import matplotlib.pyplot as plt
-import pandas as pd
 import torch
-from networkx import *
 from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
 from torch.utils.data import DataLoader
 
 # FIXME: remove this block for agent_submission
 from gravitas.autoencoder import AE
 from gravitas.dataset_gravitas import Dataset_Gravity
-from gravitas.utils import check_diversity  #
+from gravitas.utils import check_diversity, calc_min_eucl_spanning_tree
 from gravitas.vae import VAE
 
 
@@ -288,7 +286,6 @@ class Agent:
             repellent_share=repellent_share,
             n_algos=self.valid_dataset.nA,
             device=device,
-
         )
 
         if training == 'gravity':
@@ -546,26 +543,11 @@ class Agent:
         d_test = self.model.encode(D_test)
         z_algo = self.model.Z_algo
 
-        d_test_tree = self._calc_min_eucl_spanning_tree(d_test)
-        z_algo_tree = self._calc_min_eucl_spanning_tree(z_algo)
+        d_test_tree = calc_min_eucl_spanning_tree(d_test)
+        z_algo_tree = calc_min_eucl_spanning_tree(z_algo)
 
         d_diversity = sum([tup[2]['weight'] for tup in d_test_tree])
         z_diversity = sum([tup[2]['weight'] for tup in z_algo_tree])
 
         # sum of weighted edges
         return d_diversity, z_diversity
-
-    def _calc_min_eucl_spanning_tree(self, d_test: torch.tensor):
-        dist_mat = torch.cdist(d_test, d_test)
-        dist_mat = dist_mat.cpu().detach().numpy()
-
-        nodes = list(range(len(dist_mat)))
-        d = [(src, dst, dist_mat[src, dst]) for src in nodes for dst in nodes if src != dst]
-
-        df = pd.DataFrame(data=d, columns=['src', 'dst', 'eucl'])
-
-        g = Graph()
-        for index, row in df.iterrows():
-            g.add_edge(row['src'], row['dst'], weight=row['eucl'])
-
-        return list(minimum_spanning_edges(g))  # fixme: VAE produces NAN sometimes
