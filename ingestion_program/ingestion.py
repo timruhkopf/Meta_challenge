@@ -9,11 +9,11 @@ from sklearn.model_selection import KFold
 from environment import Meta_Learning_Environment
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--epochs", type=int, default=10,
+parser.add_argument("--epochs", type=int, default=100,
                     help="epochs used for every part of the main training")
-parser.add_argument("--pretrain_epochs", type=int, default=10,
+parser.add_argument("--pretrain_epochs", type=int, default=100,
                     help="epochs used for pretraining")
-parser.add_argument("--mode", type=str, choices=['testing', 'submission'], default='testing',
+parser.add_argument("--mode", type=str, choices=['testing', 'submission'], default='submission',
                     help="whether to use agent_gravitas or patched submission agent script")
 
 args = parser.parse_args()
@@ -219,7 +219,7 @@ if __name__ == "__main__":
     # from gravitas.agent_gravitas import Agent
 
     # choosing the agent to run
-    from submission.submission_docs.agent_adi import Agent as Agent_submission
+    from submission.submission_docs.agent import Agent as Agent_submission
     from gravitas.agent_gravitas import Agent as Agent_gravitas
 
     agents = {'submission': Agent_submission, 'testing': Agent_gravitas}
