@@ -14,6 +14,7 @@ from gravitas.vae import VAE
 
 class Agent:
     encoder_class = {'AE': AE, 'VAE': VAE}
+    nA = None  # number of algorihtms used
 
     def __init__(
             self,
@@ -40,7 +41,7 @@ class Agent:
             The seed for the random number generator
         """
 
-        self.nA = number_of_algorithms
+        Agent.nA = number_of_algorithms
         self.encoder = encoder
         self.seed = seed
 
@@ -141,7 +142,6 @@ class Agent:
                    embedding_dim=2,
                    weights=[1., 1., 1., 1.],
                    repellent_share=0.33,
-                   deselect=5, topk=10, deselection_metric='skew',
                    training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
@@ -183,13 +183,22 @@ class Agent:
 
         """
 
+        validation_data = dataset_meta_features, validation_learning_curves, algorithms_meta_features
+        test_data = dataset_meta_features, test_learning_curves, algorithms_meta_features
+
         # validation dataloader
-        self.valid_dataset = Dataset_Gravity(
-            dataset_meta_features,
-            validation_learning_curves,
-            algorithms_meta_features,
-            n_compettitors,
-            deselect, topk, deselection_metric)
+        self.valid_dataset = Dataset_Gravity(n_compettitors)
+        self.test_dataset = Dataset_Gravity(n_compettitors)
+
+        if len(Dataset_Gravity.deselected) == 0:
+            self.valid_dataset.preprocess(*validation_data)
+            self.test_dataset.preprocess(*test_data)
+        else:
+            print(f'The algorithms {Dataset_Gravity.deselected} have been deselected')
+            self.valid_dataset.preprocess_with_known_deselection(*validation_data)
+            self.test_dataset.preprocess_with_known_deselection(*test_data)
+
+        self.nA = self.valid_dataset.nA
 
         # # fixme: move following eda to Dataset_Gravity:
         # # (0) find out if there are algorithms that perform bad across all tasks
@@ -236,24 +245,7 @@ class Agent:
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
-            batch_size=batch_size
-        )
-
-        self.test_dataset = Dataset_Gravity(
-            dataset_meta_features,
-            test_learning_curves,
-            algorithms_meta_features,
-            n_compettitors)
-
-        if len(self.valid_dataset.deselected) > 0:
-            print(f'The algorithms {self.valid_dataset.deselected} have been deselected')
-            # ensure test_data has exactly the same deselection of algorithms
-            self.test_dataset.preprocess_with_known_deselection(
-                self.valid_dataset.deselected,
-                dataset_meta_features,
-                test_learning_curves,
-                algorithms_meta_features)
-            self.nA = self.valid_dataset.nA
+            batch_size=batch_size)
 
         self.test_dataloader = DataLoader(
             self.test_dataset,

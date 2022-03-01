@@ -240,6 +240,21 @@ if __name__ == "__main__":
     iteration = 0
     from tqdm import tqdm
 
+    # DECIDE ON DESELECTION of ALGORITHMS --------------------------------------
+    from gravitas.dataset_gravitas import Dataset_Gravity
+
+    total_dataset = Dataset_Gravity(no_competitors=11)  # fixme move to args
+    # dataset_meta_features, learning_curves, algorithm_meta_features
+    total_data = \
+        {k: env.meta_features[k] for k in list_datasets}, \
+        {k: env.validation_learning_curves[k] for k in list_datasets}, \
+        env.algorithms_meta_features
+    total_dataset.preprocess(*total_data)
+    total_dataset._reduce_algo_space(removals=5, k=10, mode='skew')  # fixme: move config up
+
+    remaining_algos = set(env.algorithms_meta_features.keys()) - total_dataset.deselected
+    print(remaining_algos)
+
     for D_tr, D_te in tqdm(kf.split(list_datasets)):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")
 

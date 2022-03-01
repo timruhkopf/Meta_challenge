@@ -3,9 +3,10 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.stats as ss
 import seaborn as sns
 import torch
-from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from torch.utils.data import Dataset
 
 
@@ -18,7 +19,7 @@ class Dataset_Gravity(Dataset):
 
     # Encoder must be available across instances
     enc_cat = OneHotEncoder(sparse=False, handle_unknown='ignore')
-    enc_num = MinMaxScaler()
+    enc_num = StandardScaler()
 
     # ensure that we will not ignore any observations for categorical variables
     enc_cat.fit(
@@ -398,10 +399,12 @@ class Dataset_Gravity(Dataset):
         ]))
 
     n_features = 0
+    deselected = set()
+    nA = None  # number of algorithms
 
-    def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features,
+    def __init__(self,
                  no_competitors=11,
-                 deselect=0, topk=10, deselection_metric='skew', seed=123456, ):
+                 seed=123456, ):
         """
 
         :param dataset_meta_features:
@@ -417,26 +420,8 @@ class Dataset_Gravity(Dataset):
         is pairwise comparisons
         """
         self.no_competitors = no_competitors
-        self.deselect = deselect
 
-        # DEPRECIATE
-        self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
-
-        # new version of preprocessing
-        self.preprocess_learning_curves(learning_curves)
-        self._calc_timestamp_distribution(2)
-
-        if deselect > 0:
-            self.deselected = self._reduce_algo_space(removals=deselect, k=topk, mode=deselection_metric)
-            # redoit all again, so that the getitem never sees these algos
-            self.preprocess_with_known_deselection(self.deselected, dataset_meta_features, learning_curves,
-                                                   algorithms_meta_features)
-
-        self.nA = len(self.algo_final_performances.columns)
-
-        # needed for plotting
-        self.raw_learning_curves = learning_curves
-        self.raw_dataset_meta_features = dataset_meta_features
+        # self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
 
         # seeding
         random.seed(seed)
@@ -556,27 +541,41 @@ class Dataset_Gravity(Dataset):
         self.nD = len(dataset_meta_features.keys())
 
         # changing keys to int
-        algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()}
-        dataset_meta_features = {k: v for k, v in dataset_meta_features.items()}
-        learning_curves = {k: {int(k1): v1 for k1, v1 in v.items()}
+        # algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()}
+        # dataset_meta_features = {k: v for k, v in dataset_meta_features.items()}
+        learning_curves = {k: {k1: v1 for k1, v1 in v.items()}
                            for k, v in learning_curves.items()}
-
+        # Depreciate
         self._preprocess_meta_features(dataset_meta_features)
         self._preprocess_learning_curves(algorithms_meta_features, learning_curves)
         self._preporcess_scalar_properties(self.algo_learning_curves)
         self._preprocess_dataset_properties(learning_curves, dataset_meta_features)
         self._preprocess_thresholded_algo_performances(k=10)
 
-    def preprocess_with_known_deselection(self, deselected, dataset_meta_features, learning_curves,
+        # Consider: this is the new version of preprocessing
+        Dataset_Gravity.nA = len(self.algo_final_performances.columns)
+        self.preprocess_learning_curves(learning_curves)
+        self._calc_timestamp_distribution(2)
+
+        # needed for plotting
+        self.raw_learning_curves = learning_curves
+        self.raw_dataset_meta_features = dataset_meta_features
+
+    def preprocess_with_known_deselection(self,
+                                          dataset_meta_features, learning_curves,
                                           algorithms_meta_features):
         """
         wrapper around preprocess to allow user to algin validation and test datasets in terms of algorithm
-        deselection.
+        deselection. (previous call to _reduce algo space resulted in deselection of algos)
         """
-        self.preprocess(dataset_meta_features,
-                        {d: {a: curve for a, curve in algos.items() if int(a) not in deselected}
-                         for d, algos in learning_curves.items()},
-                        {k: v for k, v in algorithms_meta_features.items() if int(k) not in deselected})
+        # deselect the algorithms that had been deselected
+        learning_curves = {d: {a: curve for a, curve in algos.items()
+                               if a not in Dataset_Gravity.deselected}
+                           for d, algos in learning_curves.items()}
+        algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()
+                                    if k not in Dataset_Gravity.deselected}
+
+        self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
 
     def _preprocess_learning_curves(self, algorithms_meta_features, learning_curves):
         """Enrich the learning curve objects with properties computed on the learning curve
@@ -651,6 +650,7 @@ class Dataset_Gravity(Dataset):
         """create a df with meta features of each dataset"""
 
         # Preprocess dataset meta data (remove the indiscriminative string variables)
+
         df = pd.DataFrame(
             list(dataset_meta_features.values()),
             index=dataset_meta_features.keys())
@@ -778,36 +778,39 @@ class Dataset_Gravity(Dataset):
 
         Core idea is to iteratively remove columns from self.algo_final_performances
         by choosing the ones that reduce the overall row score the least.
+
         """
 
-        def calc_ecdf(data, n_bins=100):
-            count, bins_count = np.histogram(data, bins=n_bins)
-
-            # finding the PDF of the histogram using count values
-            pdf = count / sum(count)
-            cdf = np.cumsum(pdf)
-            return bins_count[1:], cdf
-
-        def calc_pdf_integral0(data, n_bins):
-            """
-            Calculate the probability mass of x <= 0
-            :param data:
-            :param n_bins:
-            :return: probability of below x=0
-            """
-            x, cdf = calc_ecdf(data, n_bins)
-            return cdf[np.argmax(x >= 0)]
+        # def calc_ecdf(data, n_bins=100):
+        #     count, bins_count = np.histogram(data, bins=n_bins)
+        #
+        #     # finding the PDF of the histogram using count values
+        #     pdf = count / sum(count)
+        #     cdf = np.cumsum(pdf)
+        #     return bins_count[1:], cdf
+        #
+        # def calc_pdf_integral0(data, n_bins):
+        #     """
+        #     Calculate the probability mass of x <= 0
+        #     :param data:
+        #     :param n_bins:
+        #     :return: probability of below x=0
+        #     """
+        #     x, cdf = calc_ecdf(data, n_bins)
+        #     return cdf[np.argmax(x >= 0)]
 
         df = self.algo_final_performances
         k_inv = len(df.columns) - k
+        # assert k_inv >= len(df.columns) // removals
+        # fixme there must be some assertation
+        #  to ensure that we always will have at least k competitors
 
         # init for selection
         deselected = set()
         remaining = set(df.columns)
-
+        # FIXME: argsort is behaving erradically
+        performance_baseline = df[np.argsort(df, axis=1) >= k].mean(axis=1)
         performances = {k: None for k in df.loc[:, remaining]}
-        performance_baseline = df.max(axis=1) - \
-                               df[np.argsort(df, axis=1) >= k_inv].mean(axis=1, )
         skew_baseline = performance_baseline.skew(axis=0)
         for r in range(removals):
 
@@ -820,22 +823,30 @@ class Dataset_Gravity(Dataset):
                 # compute average performance increase (on topk algos) on a dataset (value) deselecting this algo (key)
                 # An improvement can come from deselecting a below mean performing algo
                 # A deterioration comes from removing above mean performing algo on that dataset
-                consider = k_inv - len(deselected)  # rank threshold (minimum rank to get into topk)
-                absolute_perf = current_df[np.argsort(current_df, axis=1) >= consider].mean(axis=1)
-                performances[algo] = performance_baseline - (current_df.max(axis=1) - absolute_perf)
+                consider = k_inv - len(deselected)  # rank threshold (minimum rank to get into topk) - this changes
+                # once we start removing algorithms
+
+                # tie breaking by order in array
+                ranks = pd.DataFrame(ss.rankdata(current_df, axis=1, method='ordinal'))
+                ranks.columns, ranks.index = current_df.columns, current_df.index
+
+                avg_remaining_topk_perf = current_df[ranks >= consider].mean(axis=1)
+                performances[algo] = performance_baseline - avg_remaining_topk_perf
 
             if mode == 'skew':
-                # FIXME: how can improve against the mean? only if we dont fill up the selection
-                # remove the algo, that reduces the skewness of the baseline the most
+                # remove the algo, that reduces the skewness of the baseline the least
+                # i.e. it has the least value to it
+                assert all(pd.DataFrame(performances) < 0)
                 skew = pd.DataFrame(performances).skew(axis=0)
                 deselected_algo = skew.index[np.argmin(skew_baseline - skew)]
                 skew_baseline = skew[deselected_algo]
 
-            elif mode == '0threshold':
-                # remove the algo that has least density mass on reducing the overall
-                # performance of datasets (compared to current baseline)
-                deselected_algo = pd.Series({k: calc_pdf_integral0(v, n_bins=100)
-                                             for k, v in performances.items()}).argmin()
+            # elif mode == '0threshold':
+            #     # remove the algo that has least density mass on reducing the overall
+            #     # performance of datasets (compared to current baseline)
+            #     deselected_algo = pd.Series(
+            #         {k: calc_pdf_integral0(v, n_bins=100)
+            #          for k, v in performances.items()}).argmin()
 
             deselected.add(deselected_algo)
             remaining.remove(deselected_algo)
@@ -852,7 +863,7 @@ class Dataset_Gravity(Dataset):
             # plt.title(f'Leave this algo out decrease in top-{k} avg. performance on a dataset')
             # plt.show()
 
-        return deselected
+        Dataset_Gravity.deselected = deselected
 
     def plot_learning_curves(self, dataset_id=9):
 
