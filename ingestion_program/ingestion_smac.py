@@ -273,7 +273,7 @@ path.append(submission_dir)
 from gravitas.agent_gravitas import Agent
 
 # === Clear old output
-# clear_output_dir(output_dir)
+clear_output_dir(output_dir)
 
 # make split available to all TAE instantiations (calls)
 kf = KFold(n_splits=args.folds, shuffle=False)
@@ -331,7 +331,7 @@ def tae(config, budget):
         ground_truth_rankings = np.argsort(meta_test_dataset.algo_final_performances, axis=1)
 
         # META-TESTING-------------
-        # meta_testing(trained_agent, D_te)  # <<<--- intercepting the results on the heldout fold
+        meta_testing(trained_agent, D_te, env)  # <<<--- intercepting the results on the heldout fold
         holdout_rankings = []
         holdout_rankings_truth = []
         holdout_embedding_distances = []  # distances of algorithms to the dataset. (base for ranking vector)
