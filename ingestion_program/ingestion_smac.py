@@ -5,6 +5,7 @@ import shutil
 import sys
 from sys import path
 
+import pandas as pd
 from sklearn.model_selection import KFold
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -27,14 +28,14 @@ from ConfigSpace.hyperparameters import \
 from smac.configspace import ConfigurationSpace
 from smac.facade.smac_mf_facade import SMAC4MF
 from smac.scenario.scenario import Scenario
-
+import subprocess
 import argparse
 
 parser = argparse.ArgumentParser()
 # Make sure to set up in this files parent directory!
 parser.add_argument("--hours", type=float, default=0.1,
                     help="hours allocated to smac")
-parser.add_argument("--encoder", type=str, choices=['AE', 'VAE'], default='VAE',
+parser.add_argument("--encoder", type=str, choices=['AE', 'VAE'], default='AE',
                     help="hours allocated to smac")
 parser.add_argument("--training", type=str, choices=['schedule', 'gravity'], default='schedule',
                     help="the Autoencoder training procdure applied in (Agent.meta_training)")
@@ -48,6 +49,8 @@ parser.add_argument('--folds', type=int, default=2,
                     help="number of validation folds.")
 parser.add_argument('--deselection_metric', type=str, default='skew', choices=['skew', '0threshold'],
                     help="Metric to use while deselecting")
+parser.add_argument('--eval_method', type=str, default='ALC', choices=['ALC', 'ndcg@K'],
+                    help="Metric for smac validation loss")
 parser.add_argument('--verbose', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=208)
 args = parser.parse_args()
@@ -300,13 +303,29 @@ def tae(config, budget):
         config.pop('lossweight' + str(w))
 
     config['lr'] = config.pop('learning_rate_init')
-    config['deselection_metric'] = args.deselection_metric
+    # config['deselect'] = 0  # TODO 0 is excluding the deselection behaviour
+    # config['topk'] = 10
+    # config['deselection_metric'] = args.deselection_metric
 
-    # === Start iterating, each iteration involves a meta-training step and a meta-testing step
+    # DECIDE ON DESELECTION OF ALGORITHMS --------------------------------------
+    total_dataset = Dataset_Gravity(no_competitors=11)  # fixme move to args
+    # dataset_meta_features, learning_curves, algorithm_meta_features
+    total_data = \
+        {k: env.meta_features[k] for k in list_datasets}, \
+        {k: env.validation_learning_curves[k] for k in list_datasets}, \
+        env.algorithms_meta_features
+    total_dataset.preprocess(*total_data)
+    total_dataset._reduce_algo_space(removals=0, k=10, mode='skew')  # fixme: move config up
+
+    remaining_algos = set(env.algorithms_meta_features.keys()) - total_dataset.deselected
+    print(remaining_algos)
+
+    # META TRAIN & TEST --------------------------------------------------------
     iteration = 0
     holdout_losses_ndcg = []
     holdout_losses_ranking = []
     # learned_rankings = []
+    alc_scores = []
     for D_tr, D_te in kf.split(list_datasets):
         vprint(args.verbose, "\n********** Fold " + str(iteration) + " **********")
 
@@ -326,55 +345,71 @@ def tae(config, budget):
         meta_test_dataset = [list_datasets[d] for d in D_te]
         meta_features = {k: env.meta_features[k] for k in meta_test_dataset}
         learning_curves = {k: env.test_learning_curves[k] for k in meta_test_dataset}
-        meta_test_dataset = Dataset_Gravity(meta_features, learning_curves, env.algorithms_meta_features)
+        meta_test_dataset = Dataset_Gravity()
+        meta_test_dataset.preprocess(meta_features, learning_curves, env.algorithms_meta_features)
 
         ground_truth_rankings = np.argsort(meta_test_dataset.algo_final_performances, axis=1)
 
         # META-TESTING-------------
         meta_testing(trained_agent, D_te, env)  # <<<--- intercepting the results on the heldout fold
-        holdout_rankings = []
-        holdout_rankings_truth = []
-        holdout_embedding_distances = []  # distances of algorithms to the dataset. (base for ranking vector)
-        for d_te in D_te:
-            dataset_name = list_datasets[d_te]
-            meta_features = env.meta_features[dataset_name]
 
-            # === Reset both the environment and the trained_agent for a new task
-            dataset_meta_features, algorithms_meta_features = env.reset(dataset_name=dataset_name)
-            # agent.reset will already trigger a prediction on the new dataset
-            trained_agent.reset(dataset_meta_features, algorithms_meta_features)
-            holdout_rankings.append(trained_agent.learned_rankings)
-            holdout_rankings_truth.append(ground_truth_rankings.loc[dataset_name, :])
+        # Evaluation:
+        if args.eval_method == 'ALC':
+            subprocess.call(["bash", "score_smac.sh"])
 
-            # get the embedding distances (score for ndcg loss)
-            d_index = meta_test_dataset.datasets_meta_features_df.index.tolist().index(dataset_name)
-            d_new = meta_test_dataset.datasets_meta_features[d_index].reshape(1, -1)
-            d_new = d_new.to(agent.model.device)
-            agent.model.eval()
-            Z_data = agent.model.encode(d_new)
-            dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
-            holdout_embedding_distances.append(torch.topk(dist_mat, largest=False, k=agent.nA)[1][0])
+            # read out the score:
+            scores_df = pd.read_table(f'{output_dir}/scores.txt', sep=':', header=None)
+            alc_scores.append(scores_df.loc[1, 1])
 
-        holdout_rankings_truth = np.array(holdout_rankings)
-        holdout_embedding_distances = torch.stack(holdout_embedding_distances)
+        elif args.eval_method == 'ndcg@K':
+            holdout_rankings = []
+            holdout_rankings_truth = []
+            holdout_embedding_distances = []  # distances of algorithms to the dataset. (base for ranking vector)
+            for d_te in D_te:
+                dataset_name = list_datasets[d_te]
+                meta_features = env.meta_features[dataset_name]
 
-        # compute the fold's loss
-        # Fixme: choose a K?? NDCG@K loss!
-        with torch.no_grad():
-            holdout_embedding_distances = holdout_embedding_distances.cpu()
+                # === Reset both the environment and the trained_agent for a new task
+                dataset_meta_features, algorithms_meta_features = env.reset(dataset_name=dataset_name)
+                # agent.reset will already trigger a prediction on the new dataset
+                trained_agent.reset(dataset_meta_features, algorithms_meta_features)
+                holdout_rankings.append(trained_agent.learned_rankings)
+                holdout_rankings_truth.append(ground_truth_rankings.loc[dataset_name, :])
 
-            holdout_losses_ndcg.append(
-                ndcg_score(holdout_rankings_truth, holdout_embedding_distances.numpy(),
-                           k=10, sample_weight=None, ignore_ties=False))
+                # get the embedding distances (score for ndcg loss)
+                d_index = meta_test_dataset.datasets_meta_features_df.index.tolist().index(dataset_name)
+                d_new = meta_test_dataset.datasets_meta_features[d_index].reshape(1, -1)
+                d_new = d_new.to(agent.model.device)
+                agent.model.eval()
+                Z_data = agent.model.encode(d_new)
+                dist_mat = torch.cdist(Z_data, agent.model.Z_algo)
+                holdout_embedding_distances.append(torch.topk(dist_mat, largest=False, k=agent.nA)[1][0])
+
+            holdout_rankings_truth = np.array(holdout_rankings)
+            holdout_embedding_distances = torch.stack(holdout_embedding_distances)
+
+            # compute the fold's loss
+            # Fixme: choose a K?? NDCG@K loss!
+            with torch.no_grad():
+                holdout_embedding_distances = holdout_embedding_distances.cpu()
+
+                holdout_losses_ndcg.append(
+                    ndcg_score(holdout_rankings_truth, holdout_embedding_distances.numpy(),
+                               k=10, sample_weight=None, ignore_ties=False))
 
         # todo ranking loss: requires to collect the learned rankings per dataset_new
         # holdout_losses_ranking.append(
         #     label_ranking_loss(holdout_rankings_truth, trained_agent.learned_rankings))
 
+        clear_output_dir(output_dir)
+
         iteration += 1
-    print()
-    # average across holdout_scores
-    return 1 - (sum(holdout_losses_ndcg) / len(holdout_losses_ndcg)), {'diversity': diversity}  # no_splits=6
+
+    if args.eval_method == 'ALC':
+        return -1 * np.mean(alc_scores), {'diversity': diversity}
+    elif args.eval_method == 'ncg@K':
+        # average across holdout_scores
+        return 1 - (sum(holdout_losses_ndcg) / len(holdout_losses_ndcg)), {'diversity': diversity}  # no_splits=6
 
 
 if __name__ == '__main__':
@@ -386,8 +421,8 @@ if __name__ == '__main__':
     # Add all hyperparameters at once:
     cs.add_hyperparameters(
         [UniformIntegerHyperparameter('n_compettitors', 1, 19, default_value=10),
-         UniformIntegerHyperparameter('topk', 1, 20, default_value=10),
-         UniformIntegerHyperparameter('deselect', 0, 10, default_value=5),
+         # UniformIntegerHyperparameter('topk', 1, 20, default_value=10),
+         # UniformIntegerHyperparameter('deselect', 0, 10, default_value=5),
          # CategoricalHyperparameter('deselection_metric', choices=[''] ),
          UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3),
          UniformFloatHyperparameter('repellent_share', .2, .8, default_value=0.33),
