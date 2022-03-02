@@ -219,7 +219,7 @@ if __name__ == "__main__":
     # from gravitas.agent_gravitas import Agent
 
     # choosing the agent to run
-    from submission.submission_docs.agent_adi import Agent as Agent_submission
+    from submission.submission_docs.agent import Agent as Agent_submission
     from gravitas.agent_gravitas import Agent as Agent_gravitas
 
     agents = {'submission': Agent_submission, 'testing': Agent_gravitas}

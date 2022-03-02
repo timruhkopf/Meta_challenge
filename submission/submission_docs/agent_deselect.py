@@ -3,13 +3,38 @@ import warnings
 
 import numpy as np
 
+import pandas as pd
+import torch
+from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
+from torch.utils.data import DataLoader
+
+import torch
+import torch.nn as nn
+import torch.distributions as td
+
+import random
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import torch
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from torch.utils.data import Dataset
+
+from typing import List, Tuple, Any
+from abc import abstractmethod
+
+from typing import List
+
+
+import pdb
+
+
 
 def freeze(listoflayers, unfreeze=True):
     """freeze the parameters of the list of layers """
     for l in listoflayers:
         for p in l.parameters():
             p.requires_grad = unfreeze
-
 
 def check_diversity(representation, title, epsilon=0.01):
     """
@@ -38,12 +63,7 @@ def check_or_create_dir(dir):
 
     else:
         print(dir, "folder already exists.")
-import torch
-import torch.nn as nn
 
-from typing import List, Tuple, Any
-
-from abc import abstractmethod
 
 class BaseEncoder(nn.Module):
     """
@@ -92,16 +112,6 @@ class BaseEncoder(nn.Module):
         """
         pass
         
-
-
-
-from typing import List
-
-import torch
-import torch.distributions as td
-import torch.nn as nn
-from tqdm import tqdm
-
 
 
 class AE(BaseEncoder):
@@ -352,7 +362,7 @@ class AE(BaseEncoder):
         tracking = []
         # check that only require_grad tensors are optimized (used for freezing)
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr)
-        for e in tqdm(range(epochs)):
+        for e in range(epochs):
             for i, data in enumerate(train_dataloader):
                 D0, D1, A0, A1 = data
 
@@ -419,145 +429,6 @@ class AE(BaseEncoder):
         self.train()
 
         return top_algo
-import torch
-import torch.nn as nn
-
-
-
-class VAE(AE):
-    # TODO allow for algo meta features
-    # def __init__(
-    #     self,
-    #     input_dim: int = 10,
-    #     hidden_dims: List[int] = [8,4],
-    #     embedding_dim: int = 2,
-    #     weights: List[float]=[1.0, 1.0, 1.0, 1.0],
-    #     repellent_share: float =0.33,
-    #     n_algos: int =20,
-    #     device=None,
-    # ):
-    #     """
-    #
-    #     :param nodes: list of number of nodes from input to output
-    #     :param weights: list of floats indicating the weights in the loss:
-    #     reconstruction, algorithm pull towards datasets, data-similarity-attraction,
-    #     data-dissimilarity-repelling.
-    #     :param n_algos: number of algorithms to place in the embedding space
-    #     """
-    #     super().__init__()
-    #     self.device = device
-    #     self.weights = torch.tensor(weights).to(device)
-    #     self.repellent_share = repellent_share
-    #
-    #     # construct the autoencoder
-    #     self.embedding_dim = embedding_dim
-    #     self.input_dim = input_dim
-    #     self.hidden_dims = hidden_dims
-    #
-    #     self._build_network()
-    #
-    #     # initialize the algorithms in embedding space
-    #     self.n_algos = n_algos
-    #     self.embedding_dim = self.embedding_dim
-    #     self.Z_algo = nn.Parameter(
-    #         td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
-    #     )
-    #
-    #     self.to(self.device)
-
-    def _build_network(self) -> None:
-        """
-        Builds the encoder and decoder networks
-        """
-        # Make the Encoder
-        modules = []
-
-        hidden_dims = self.hidden_dims
-        input_dim = self.input_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        
-        self.encoder = torch.nn.Sequential(*modules)
-
-        # Mean and std_dev for the latent distribution
-        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
-        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
-
-        # modules.append(nn.Linear(input_dim, self.latent_dim))
-        # modules.append(nn.BatchNorm1d(self.latent_dim))
-        # modules.append(nn.Dropout(p=0.5))
-        # modules.append(nn.ReLU())
-
-        
-
-        # Make the decoder
-        modules = []
-
-        hidden_dims.reverse()
-        input_dim = self.embedding_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid()) 
-
-
-        self.decoder = nn.Sequential(*modules)
-
-    
-    def reparameterize(
-                    self, 
-                    mu: torch.Tensor, 
-                    logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Reparameterization trick to sample from N(mu, var)
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        
-        return eps * std + mu
-    
-    def encode(self, x):
-        
-        # Forward pass the input through the network
-        result = self.encoder(x)
-
-        # Get the mean and standard deviation from the output 
-        mu = self.fc_mu(result)
-        log_var = self.fc_var(result)
-
-        # TODO: Plot latent distributions
-
-
-
-        # Sample a latent vector using the reparameterization trick
-        z = self.reparameterize(mu, log_var)
-
-        return z        
-
-    def decode(self, x):
-        return self.decoder(x)
-import random
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import torch
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from torch.utils.data import Dataset
-
 
 class Dataset_Gravity(Dataset):
     # Dataset_columns
@@ -948,7 +819,7 @@ class Dataset_Gravity(Dataset):
         ]))
 
     n_features = 0
-    deselected = set()
+    deselected =  {'1', '0', '8', '18', '15'}
     nA = None  # number of algorithms
 
     def __init__(self,
@@ -1016,16 +887,12 @@ class Dataset_Gravity(Dataset):
         self.ids_algos = [int(i) for i in ids_algos]
         self.ids_datasets = list(learning_curves.keys())
 
-        self.lc = {(d, int(a)): lc for d, algos in learning_curves.items()
-                   for a, lc in algos.items()}
+        self.lc = {}
 
-        # Depreciate EDA prints
-        # pd.set_option("display.max_rows", None, "display.max_columns", None)
-        # print('\ntimestamp distribution')
-        # print(pd.Series(len(lc.timestamps) for k, lc in self.lc.items()).value_counts().sort_index())
-        #
-        # print('\nsingle timestamp scores')
-        # print(pd.Series(lc.scores for k, lc in self.lc.items() if len(lc.timestamps) == 1))
+        for d, algos in learning_curves.items():
+            for a, lc in algos.items():
+                self.lc[(d, a)] = lc
+                
 
         # ensure correct ordering
         dataset_major = sorted(self.lc.keys(), key=lambda tup: tup[0])
@@ -1037,22 +904,28 @@ class Dataset_Gravity(Dataset):
         self.datasets = {d: [k for k in algo_major if k[0] == d]
                          for d in self.ids_datasets}
 
-        # lookup actual object based on aggregation
+        # lookup actual object based on aggregation        
+        self.lc_algos = {}
+
+        # for a in self.ids_algos:
+        #     self.lc_algos[a] = []
+        #     for k in dataset_major:
+        #         if k[1] == a:
+        #             self.lc_algos[a].append(self.lc[k])
+
+        
+        
         self.lc_algos = {a: [self.lc[k] for k in dataset_major if k[1] == a]
                          for a in self.ids_algos}
+
+        # for d in self.ids_datasets:
+        #     self.lc_datasets[d] = []
+        #     for k in algo_major:
+        #         if k[0] == d:
+        #             self.lc_datasets[d].append(self.lc[k])
+
         self.lc_datasets = {d: [self.lc[k] for k in algo_major if k[0] == d]
                             for d in self.ids_datasets}
-
-        # Depreciate remove this EDA
-        # print('\nper algo distribution of timestamps')
-        # print(pd.DataFrame({a_id: pd.Series([len(lc.timestamps) for lc in algo_lcs]).value_counts().sort_index()
-        #  for a_id, algo_lcs in self.lc_algos.items()}))
-        #
-        # print('\nper dataset distribution of timestamps')
-        # print(pd.DataFrame({a_id: pd.Series([len(lc.timestamps) for lc in algo_lcs]).value_counts().sort_index()
-        #        for a_id, algo_lcs in self.lc_datasets.items()}))
-        #
-        # raise ValueError('debugging EDA')
 
         # add identifier to lc object
         for k, lc in self.lc.items():
@@ -1075,11 +948,8 @@ class Dataset_Gravity(Dataset):
     def _calc_timestamp_distribution(self, stamp: int):
 
         for lc in self.lc.values():
-            # to avoid errors due to single timestmaps
-            if len(lc.timestamps) > stamp:
-                lc.tmp = lc.timestamps[stamp]
-            else:
-                lc.tmp = lc.timestamps[-1]
+            lc.tmp = lc.timestamps[stamp]
+
         df = self._aggregate_scalars_to_df('tmp')
 
         # clean up
@@ -1111,9 +981,6 @@ class Dataset_Gravity(Dataset):
         """
         self.nD = len(dataset_meta_features.keys())
 
-        # fixme: remove this duplicate line: (debugging purpose only)
-        self.preprocess_learning_curves(learning_curves)
-
         # changing keys to int
         # algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()}
         # dataset_meta_features = {k: v for k, v in dataset_meta_features.items()}
@@ -1129,7 +996,7 @@ class Dataset_Gravity(Dataset):
         # Consider: this is the new version of preprocessing
         Dataset_Gravity.nA = len(self.algo_final_performances.columns)
         self.preprocess_learning_curves(learning_curves)
-        self._calc_timestamp_distribution(2)
+        self._calc_timestamp_distribution(0)
 
         # needed for plotting
         self.raw_learning_curves = learning_curves
@@ -1168,8 +1035,7 @@ class Dataset_Gravity(Dataset):
                 self.algo_learning_curves[str(algo_id)][ds_id] = curve
 
                 # final performance
-                # guarding against 0 devision error
-                curve.final_performance = curve.scores[-1] if curve.scores[-1] > 0. else 0.0001
+                curve.final_performance = curve.scores[-1]
 
                 # how much in % of the final performance
                 curve.convergence_share = curve.scores / curve.final_performance
@@ -1356,24 +1222,6 @@ class Dataset_Gravity(Dataset):
 
         """
 
-        # def calc_ecdf(data, n_bins=100):
-        #     count, bins_count = np.histogram(data, bins=n_bins)
-        #
-        #     # finding the PDF of the histogram using count values
-        #     pdf = count / sum(count)
-        #     cdf = np.cumsum(pdf)
-        #     return bins_count[1:], cdf
-        #
-        # def calc_pdf_integral0(data, n_bins):
-        #     """
-        #     Calculate the probability mass of x <= 0
-        #     :param data:
-        #     :param n_bins:
-        #     :return: probability of below x=0
-        #     """
-        #     x, cdf = calc_ecdf(data, n_bins)
-        #     return cdf[np.argmax(x >= 0)]
-
         df = self.algo_final_performances
         k_inv = len(df.columns) - k
         # assert k_inv >= len(df.columns) // removals
@@ -1416,75 +1264,15 @@ class Dataset_Gravity(Dataset):
                 deselected_algo = skew.index[np.argmin(skew_baseline - skew)]
                 skew_baseline = skew[deselected_algo]
 
-            # elif mode == '0threshold':
-            #     # remove the algo that has least density mass on reducing the overall
-            #     # performance of datasets (compared to current baseline)
-            #     deselected_algo = pd.Series(
-            #         {k: calc_pdf_integral0(v, n_bins=100)
-            #          for k, v in performances.items()}).argmin()
-
             deselected.add(deselected_algo)
             remaining.remove(deselected_algo)
             performance_baseline = performances.pop(deselected_algo)
 
-            # # plotting the change in baseline performances across datasets:
-            # # this is the performance profile across remaining algos & datasets removing an algo.
-            # for algo in performances.keys():
-            #     # performances[algo].hist()
-            #
-            #     performances[algo].hist(density=True, histtype='step',
-            #                             cumulative=True, label=str(algo), bins=100, )
-            # plt.legend()
-            # plt.title(f'Leave this algo out decrease in top-{k} avg. performance on a dataset')
-            # plt.show()
-
         Dataset_Gravity.deselected = deselected
-
-    def plot_learning_curves(self, dataset_id=9):
-
-        for id, curve in self.raw_learning_curves[str(dataset_id)].items():
-            plt.plot(curve.timestamps, curve.scores, marker='o', linestyle='dashed', label=id)
-
-        plt.title('Dataset {}'.format(dataset_id))
-        plt.xlabel('Time')
-        plt.ylabel('Performance')
-        plt.legend(loc='upper right')
-        plt.show()
-
-    def plot_convergence90_time(self, normalized=True):
-
-        for dataset_id, dataset_curves in self.raw_learning_curves.items():
-
-            if normalized:
-                # fixme: apparently time budget can be smaller than timestamp
-                # unconditional_90time = [
-                #     curve.convergence90_time / int(self.raw_dataset_meta_features[str(dataset_id)]['time_budget'])
-                #     for curve in dataset_curves.values()]
-
-                unconditional_90time = [
-                    curve.convergence90_time / curve.timestamps[-1]
-                    for curve in dataset_curves.values()]
-                title = 'Unconditional Time Budget until 90% Convergence\n' \
-                        'normalized by available budget'
-            else:
-                unconditional_90time = [curve.convergence90_time for curve in dataset_curves.values()]
-                title = 'Unconditional Time Budget until 90% Convergence'
-            sns.kdeplot(unconditional_90time, label=dataset_id)
-
-        plt.title(title)
-        plt.legend(loc='upper right')
-        plt.show()
-import matplotlib.pyplot as plt
-import pandas as pd
-import torch
-from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
-from torch.utils.data import DataLoader
-
-# FIXME: remove this block for agent_submission
 
 
 class Agent:
-    encoder_class = {'AE': AE, 'VAE': VAE}
+    encoder_class = {'AE': AE}
     nA = None  # number of algorihtms used
 
     def __init__(
@@ -1492,7 +1280,7 @@ class Agent:
             number_of_algorithms,
             encoder: str = "AE",
             seed=123546,
-            suggest_topk=2
+            suggest_topk=17
     ):
         """
         Initialize the agent
@@ -1597,20 +1385,23 @@ class Agent:
             topk=self.nA
         )[0].tolist()
 
+        self.suggest_topk = len(self.learned_rankings) / 2 
+
     def meta_train(self,
                    dataset_meta_features,
                    algorithms_meta_features,
                    validation_learning_curves,
                    test_learning_curves,
                    # set up the encoder architecture
-                   epochs=10,
-                   pretrain_epochs=50,
+                   epochs=1000,
+                   pretrain_epochs=1000,
                    batch_size=9,
-                   n_compettitors=11,
-                   lr=0.001,
-                   embedding_dim=2,
-                   weights=[1., 1., 1., 1.],
-                   repellent_share=0.33,
+                   n_compettitors=19,
+                   lr=0.01527,
+                   embedding_dim=5,
+                   weights=[2.98744, 4.52075, 8.11511, 2.53756],
+                   repellent_share=0.65758,
+                   topk=17, 
                    training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
@@ -1666,58 +1457,8 @@ class Agent:
             print(f'The algorithms {Dataset_Gravity.deselected} have been deselected')
             self.valid_dataset.preprocess_with_known_deselection(*validation_data)
             self.test_dataset.preprocess_with_known_deselection(*test_data)
-            self.test_dataset.preprocess_with_known_deselection(*test_data)
-
-        print('\ntimestamp distribution')
-        print(pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
-
-        print('\nsingle timestamp scores')
-        print(pd.Series(lc.scores for k, lc in self.valid_dataset.lc.items() if len(lc.timestamps) == 1))
 
         self.nA = self.valid_dataset.nA
-
-        # # fixme: move following eda to Dataset_Gravity:
-        # # (0) find out if there are algorithms that perform bad across all tasks
-        # self.valid_dataset.algo_final_performances
-        #
-        # # (1) find if out if there is a good backup algorithm
-        # import numpy as np
-        # import seaborn as sns
-        # import pandas as pd
-        # algo_order = [9, 2, 3, 13, 15, 4, 17, 1, 12, 7, 19, 14, 6, 5, 16, 18, 11, 8, 0, 10]
-        # for k in range(10):
-        #     self.valid_dataset._preprocess_thresholded_algo_performances(k=k)
-        #     (self.valid_dataset.algo_thresholded_rankings != 0).sum(axis=0)
-        #
-        # # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # # ranking[9].value_counts().sort_index().plot.bar() # plot a single algorithm's performances
-        #
-        # # algorithm performances across datasets
-        # for algo in self.valid_dataset.algo_90_performances.columns:
-        #     sns.kdeplot(self.valid_dataset.algo_90_performances[algo], cut=0, label=str(algo))
-        #
-        # plt.xlabel('relative performance')
-        # plt.title('Density of algorithms\'s 90% performance across datasets')
-        # plt.legend()
-        # plt.show()
-        #
-        # # (2) Dataset meta_feature projection
-        # import umap
-        # trans = umap.UMAP(densmap=True, n_neighbors=5, random_state=42).fit(self.valid_dataset.datasets_meta_features_df)
-        # plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5,
-        #             c=self.valid_dataset.algo_final_performances[9] ,cmap='Spectral')
-        # plt.title('Embedding of the training set by densMAP')
-        #
-        # plt.show()
-        #
-        # import umap.plot
-        # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # umap.plot.points(trans, labels=ranking[9], width=500, height=500)
-        # FIXME: start here to find the complementary set.
-        #  1) look at the count of top-k k = 3 and see which are the most promising across all
-        #  2) see how much performance we'd loose if we removed the across all least performing.
-        #     what is the measure here though
-
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
@@ -1728,30 +1469,16 @@ class Agent:
             shuffle=True,
             batch_size=batch_size)
 
-        # TODO: disable: some data exploration
-        # self.test_dataset.plot_convergence90_time()
-        #
-        # for d in dataset_meta_features.keys():
-        #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
-
         # meta_learn convergence speed
         self.meta_train_convergence_speed(confidence=0.2)
-        self.meta_train_initial_budgets(confidence=0.8)
-
-        # sanity check: would we surpass a timestamp (and if how many)
-        # predicted_init = self.predict_initial_speed(self.test_dataset.datasets_meta_features_df)
-        # D = self.test_dataset
-        # # D.lc_algos[19], predicted_init[19]
-        # {algo: [sum(soll >= ist) for soll, ist in
-        #         zip(predicted_init[algo], [lc.timestamps for lc in D.lc_algos[algo]])]
-        #  for algo in D.lc_algos.keys()}
+        self.meta_train_initial_budgets(confidence=0.9)
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.encoder_class[self.encoder](
             input_dim=self.valid_dataset.n_features,
             embedding_dim=embedding_dim,
-            hidden_dims=[8, 4],
+            hidden_dims=[8, 7],
             weights=weights,
             repellent_share=repellent_share,
             n_algos=self.valid_dataset.nA,
@@ -1766,14 +1493,6 @@ class Agent:
         elif training == 'schedule':
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
-
-        raise ValueError()
-        # TODO: checkpointing the model
-        # run_id = hash()
-        # TODO: append hashtable
-        # check_or_create_dir(self.output_dir)
-        #
-        # torch.save(self.model, f'{self.output_dir}')
 
 
         # TODO: Add Bandit exploration
@@ -1810,7 +1529,7 @@ class Agent:
         """
         print('Training 2nd initial budget')
         X = self.valid_dataset.datasets_meta_features_df
-        Y = self.valid_dataset._calc_timestamp_distribution(2)
+        Y = self.valid_dataset._calc_timestamp_distribution(0)
 
         self.qr_models_init = {k: None for k in Y.columns}
         for algo in Y.columns:
@@ -1905,98 +1624,6 @@ class Agent:
 
         action = (self.A_star, self.A, delta_t)
         return action
-
-    def plot_encoder_training(self, losses, ):
-        # plot pretrain loss at each epoch.
-        plt.figure()
-        plt.plot(torch.tensor(losses).numpy(), label="gravity")
-        plt.legend()
-
-        plt.savefig(
-        )
-
-    def plot_current_embedding(self, normalize=False):
-        """
-        Plot the current embedding (both dataset & algorithms) based on the validation dataset.
-        In the case of self.model.embedding_dim > 2, a projection is used.
-        :param normalize: bool. Whether or not the 2D embeddings should be normalized
-        using the dataset's mean and standard deviation.
-
-        """
-        # plot the dataset-algo embeddings 2D
-        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
-        d_test = self.model.encode(D_test)
-
-        d_test = d_test.cpu().detach().numpy()
-        z_algo = self.model.Z_algo.cpu().detach().numpy()
-
-        check_diversity(d_test, 'Dataset')
-        check_diversity(z_algo, 'Algorithm')
-
-        if self.model.embedding_dim == 2:
-            if normalize:
-                d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
-                # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
-                z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0)  # normalization based on datasets
-
-            self._plot_embedding2d(d_test, z_algo)
-            return None
-
-        else:
-            # fixme : fix umap collapse? -- when the representation is not diverse
-            try:
-                self._plot_embedding_projection(d_test, z_algo)
-            except:
-                pass  # if umap throghs an error ignore it!
-
-    def _plot_embedding2d(self, d_test, z_algo):
-
-        plt.figure()
-        plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
-        plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
-        plt.legend()
-        plt.savefig(
-        )
-
-    def _plot_embedding_projection(self, d_test, z_algo, projection='umap'):
-        """
-        higher dimensional embeddings must be projected before being plotted.
-        To do so, the datasets are used to learn a projection, in which the algorithm
-        embeddings are projected. This way, this visualization can be used to see whether or not
-        the learned embedding is a sensible projection.
-        """
-
-        if projection == 'umap':
-            import umap
-
-            trans = umap.UMAP(densmap=True).fit(d_test)
-
-            # plot the current embedding
-            # TODO add colouring c?
-            plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5, cmap='Spectral')  # c=y_train,
-            plt.title('Embedding of the training set by densMAP')
-
-            # embedd the z_algos accordingly:
-            # Consider: This embedding may not be sensible for z_algo!
-            test_embedding = trans.fit_transform(z_algo)
-            plt.scatter(test_embedding[:, 0], test_embedding[:, 1], s=5, cmap='Spectral')
-
-            plt.savefig(
-            )
-
-        elif projection == 'pca':
-            from sklearn.decomposition import PCA
-
-            pca = PCA(n_components=2)
-            d_test_pca = pca.fit_transform(d_test)
-            z_algo_pca = pca.transform(z_algo)
-
-            plt.scatter(d_test_pca[:, 0], d_test_pca[:, 1], s=5, cmap='Spectral')  # c=y_train,
-            plt.scatter(z_algo_pca[:, 0], z_algo_pca[:, 1], s=5, cmap='Spectral')
-            plt.title('Embedding of the training set by densMAP')
-
-            plt.savefig(
-            )
 
     def measure_embedding_diversity(self):
         """
