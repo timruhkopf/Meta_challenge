@@ -470,6 +470,14 @@ class Dataset_Gravity(Dataset):
         self.lc = {(d, int(a)): lc for d, algos in learning_curves.items()
                    for a, lc in algos.items()}
 
+        # Depreciate EDA prints
+        # pd.set_option("display.max_rows", None, "display.max_columns", None)
+        # print('\ntimestamp distribution')
+        # print(pd.Series(len(lc.timestamps) for k, lc in self.lc.items()).value_counts().sort_index())
+        #
+        # print('\nsingle timestamp scores')
+        # print(pd.Series(lc.scores for k, lc in self.lc.items() if len(lc.timestamps) == 1))
+
         # ensure correct ordering
         dataset_major = sorted(self.lc.keys(), key=lambda tup: tup[0])
         algo_major = sorted(self.lc.keys(), key=lambda tup: tup[1])
@@ -485,6 +493,17 @@ class Dataset_Gravity(Dataset):
                          for a in self.ids_algos}
         self.lc_datasets = {d: [self.lc[k] for k in algo_major if k[0] == d]
                             for d in self.ids_datasets}
+
+        # Depreciate remove this EDA
+        # print('\nper algo distribution of timestamps')
+        # print(pd.DataFrame({a_id: pd.Series([len(lc.timestamps) for lc in algo_lcs]).value_counts().sort_index()
+        #  for a_id, algo_lcs in self.lc_algos.items()}))
+        #
+        # print('\nper dataset distribution of timestamps')
+        # print(pd.DataFrame({a_id: pd.Series([len(lc.timestamps) for lc in algo_lcs]).value_counts().sort_index()
+        #        for a_id, algo_lcs in self.lc_datasets.items()}))
+        #
+        # raise ValueError('debugging EDA')
 
         # add identifier to lc object
         for k, lc in self.lc.items():
@@ -507,8 +526,11 @@ class Dataset_Gravity(Dataset):
     def _calc_timestamp_distribution(self, stamp: int):
 
         for lc in self.lc.values():
-            lc.tmp = lc.timestamps[stamp]
-
+            # to avoid errors due to single timestmaps
+            if len(lc.timestamps) > stamp:
+                lc.tmp = lc.timestamps[stamp]
+            else:
+                lc.tmp = lc.timestamps[-1]
         df = self._aggregate_scalars_to_df('tmp')
 
         # clean up
@@ -539,6 +561,9 @@ class Dataset_Gravity(Dataset):
         :return:
         """
         self.nD = len(dataset_meta_features.keys())
+
+        # fixme: remove this duplicate line: (debugging purpose only)
+        self.preprocess_learning_curves(learning_curves)
 
         # changing keys to int
         # algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()}
@@ -594,7 +619,8 @@ class Dataset_Gravity(Dataset):
                 self.algo_learning_curves[str(algo_id)][ds_id] = curve
 
                 # final performance
-                curve.final_performance = curve.scores[-1]
+                # guarding against 0 devision error
+                curve.final_performance = curve.scores[-1] if curve.scores[-1] > 0. else 0.0001
 
                 # how much in % of the final performance
                 curve.convergence_share = curve.scores / curve.final_performance

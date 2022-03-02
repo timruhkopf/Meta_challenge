@@ -197,6 +197,13 @@ class Agent:
             print(f'The algorithms {Dataset_Gravity.deselected} have been deselected')
             self.valid_dataset.preprocess_with_known_deselection(*validation_data)
             self.test_dataset.preprocess_with_known_deselection(*test_data)
+            self.test_dataset.preprocess_with_known_deselection(*test_data)
+
+        print('\ntimestamp distribution')
+        print(pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
+
+        print('\nsingle timestamp scores')
+        print(pd.Series(lc.scores for k, lc in self.valid_dataset.lc.items() if len(lc.timestamps) == 1))
 
         self.nA = self.valid_dataset.nA
 
@@ -291,6 +298,7 @@ class Agent:
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
+        raise ValueError()
         # TODO: checkpointing the model
         # run_id = hash()
         # TODO: append hashtable
