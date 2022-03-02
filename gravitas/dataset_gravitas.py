@@ -580,7 +580,7 @@ class Dataset_Gravity(Dataset):
         # Consider: this is the new version of preprocessing
         Dataset_Gravity.nA = len(self.algo_final_performances.columns)
         self.preprocess_learning_curves(learning_curves)
-        self._calc_timestamp_distribution(2)
+        self._calc_timestamp_distribution(1)
 
         # needed for plotting
         self.raw_learning_curves = learning_curves

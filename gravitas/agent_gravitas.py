@@ -199,6 +199,15 @@ class Agent:
             self.test_dataset.preprocess_with_known_deselection(*test_data)
             self.test_dataset.preprocess_with_known_deselection(*test_data)
 
+        from gravitas.depenent_regression import SUR
+        Y = pd.DataFrame.from_dict({i: [lc.final_performance for lc in lc_list] for i, lc_list in
+                                    self.valid_dataset.lc_datasets.items()}, orient='index')
+        Y = torch.tensor(Y.__array__(), dtype=torch.float32)
+        X = self.valid_dataset.datasets_meta_features
+
+        reg = SUR(epsilon=0.05, X_dim=27, y_dim=20)
+        reg.fit(X, Y, lr=0.005)
+
         print('\ntimestamp distribution')
         print(pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
 
@@ -267,7 +276,7 @@ class Agent:
 
         # meta_learn convergence speed
         self.meta_train_convergence_speed(confidence=0.2)
-        self.meta_train_initial_budgets(confidence=0.8)
+        self.meta_train_initial_budgets(confidence=0.8, stamp=1)
 
         # sanity check: would we surpass a timestamp (and if how many)
         # predicted_init = self.predict_initial_speed(self.test_dataset.datasets_meta_features_df)
@@ -298,7 +307,7 @@ class Agent:
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
-        raise ValueError()
+        # raise ValueError()
         # TODO: checkpointing the model
         # run_id = hash()
         # TODO: append hashtable
@@ -337,14 +346,14 @@ class Agent:
             self.qr_models[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
             self.qr_models[algo].fit(X, Y[algo])
 
-    def meta_train_initial_budgets(self, confidence=0.8):
+    def meta_train_initial_budgets(self, confidence=0.8, stamp=1):
         """
         Since the enviroment penalizes allocating to little budget for the first step,
         we calculate the second timestamp's distribution to ensure we have hit the first one
         """
         print('Training 2nd initial budget')
         X = self.valid_dataset.datasets_meta_features_df
-        Y = self.valid_dataset._calc_timestamp_distribution(2)
+        Y = self.valid_dataset._calc_timestamp_distribution(stamp)
 
         self.qr_models_init = {k: None for k in Y.columns}
         for algo in Y.columns:

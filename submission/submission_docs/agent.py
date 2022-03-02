@@ -1896,7 +1896,7 @@ class Agent:
         delta_t = self.budgets[self.A][0] * 0.5
 
         action = (self.A_star, self.A, delta_t)
-        raise ValueError()
+
         return action
 
     def plot_encoder_training(self, losses, ):
