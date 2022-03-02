@@ -128,6 +128,8 @@ class Agent:
             topk=self.nA
         )[0].tolist()
 
+        self.suggest_topk = len(self.learned_rankings)
+
     def meta_train(self,
                    dataset_meta_features,
                    algorithms_meta_features,

@@ -1597,20 +1597,23 @@ class Agent:
             topk=self.nA
         )[0].tolist()
 
+        self.suggest_topk = len(self.learned_rankings)
+
+
     def meta_train(self,
                    dataset_meta_features,
                    algorithms_meta_features,
                    validation_learning_curves,
                    test_learning_curves,
                    # set up the encoder architecture
-                   epochs=10,
-                   pretrain_epochs=50,
+                   epochs=1000,
+                   pretrain_epochs=1000,
                    batch_size=9,
-                   n_compettitors=11,
-                   lr=0.001,
-                   embedding_dim=2,
-                   weights=[1., 1., 1., 1.],
-                   repellent_share=0.33,
+                   n_compettitors=19,
+                   lr=0.01527,
+                   embedding_dim=5,
+                   weights=[2.98744, 4.52075, 8.11511, 2.53756],
+                   repellent_share=0.65758,
                    training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
@@ -1767,17 +1770,6 @@ class Agent:
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
-        raise ValueError()
-        # TODO: checkpointing the model
-        # run_id = hash()
-        # TODO: append hashtable
-        # check_or_create_dir(self.output_dir)
-        #
-        # torch.save(self.model, f'{self.output_dir}')
-
-
-        # TODO: Add Bandit exploration
-        print()
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
