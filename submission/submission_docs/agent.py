@@ -1,14 +1,22 @@
 import os
+import random
 import warnings
+from abc import abstractmethod
+from typing import List
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import torch
+import torch.distributions as td
+import torch.nn as nn
+from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
 
 
-def freeze(listoflayers, unfreeze=True):
-    """freeze the parameters of the list of layers """
-    for l in listoflayers:
-        for p in l.parameters():
-            p.requires_grad = unfreeze
+# import seaborn as sns
 
 
 def check_diversity(representation, title, epsilon=0.01):
@@ -29,8 +37,8 @@ def check_diversity(representation, title, epsilon=0.01):
         # Warning(f'The {title} representation is not diverse.')
         print(representation)
 
-def check_or_create_dir(dir):
 
+def check_or_create_dir(dir):
     # If folder doesn't exist, then create it.
     if not os.path.isdir(dir):
         os.makedirs(dir)
@@ -38,525 +46,6 @@ def check_or_create_dir(dir):
 
     else:
         print(dir, "folder already exists.")
-import torch
-import torch.nn as nn
-
-from typing import List, Tuple, Any
-
-from abc import abstractmethod
-
-class BaseEncoder(nn.Module):
-    """
-    Base class for encoders thtat are used to get latent representations
-    of the data and the algorithms.    
-    """
-    def __init__(self) -> None:
-        super(BaseEncoder, self).__init__()
-
-    def _build_network(self) -> None:
-        """
-        Bulid the network.
-        """
-        raise NotImplementedError
-
-    def encode(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Encodes the context.
-        """
-        raise NotImplementedError
-
-    def decode(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Decodes the context.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def forward(self, D) -> torch.Tensor:
-        """
-        Forward path through the network to get the encoding
-        """
-        pass
-
-    @abstractmethod
-    def loss_gravity(self) -> torch.Tensor:
-        """
-        Loss function for gravity based training.
-        """
-        pass
-
-    @abstractmethod
-    def predict_algorithms(self) -> torch.Tensor:
-        """
-        Predict the algorithms
-        """
-        pass
-        
-
-
-
-from typing import List
-
-import torch
-import torch.distributions as td
-import torch.nn as nn
-from tqdm import tqdm
-
-
-
-class AE(BaseEncoder):
-    # TODO allow for algo meta features
-    def __init__(
-            self,
-            input_dim: int = 10,
-            hidden_dims: List[int] = [8, 4],
-            embedding_dim: int = 2,
-            weights=[1.0, 1.0, 1.0, 1.0],
-            repellent_share=0.33,
-            n_algos=20,
-            device=None,
-    ):
-        """
-
-        :param nodes: list of number of nodes from input to output
-        :param weights: list of floats indicating the weights in the loss:
-        reconstruction, algorithm pull towards datasets, data-similarity-attraction,
-        data-dissimilarity-repelling.
-        :param n_algos: number of algorithms to place in the embedding space
-        """
-        super().__init__()
-        self.device = device
-        weights = [weights[0], *weights[2:], weights[1]]  # fixme: change the doc instead!
-        self.weights = torch.tensor(weights).to(device)
-        self.repellent_share = repellent_share
-
-        # construct the autoencoder
-        self.latent_dim = embedding_dim
-        self.input_dim = input_dim
-        self.hidden_dims = hidden_dims
-
-        self.cossim = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
-
-        # initialize the algorithms in embedding space
-        self.n_algos = n_algos
-        self.embedding_dim = self.latent_dim
-        self.Z_algo = nn.Parameter(
-            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
-        )
-
-        self._build_network()
-        self.to(self.device)
-
-    def _build_network(self) -> None:
-        """
-        Builds the encoder and decoder networks
-        """
-        # Make the Encoder
-        modules = []
-
-        hidden_dims = self.hidden_dims
-        input_dim = self.input_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        modules.append(nn.Linear(input_dim, self.latent_dim))
-        modules.append(nn.BatchNorm1d(self.latent_dim))
-        modules.append(nn.Dropout(p=0.5))
-        modules.append(nn.ReLU())
-
-        self.encoder = torch.nn.Sequential(*modules)
-
-        # Make the decoder
-        modules = []
-
-        # fixme: this is an inplace change on self.hidden_dims!
-        hidden_dims.reverse()
-        input_dim = self.latent_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())  # input_dim, self.input_dim
-
-        self.decoder = nn.Sequential(*modules)
-
-    def encode(self, x):
-        return self.encoder(x)
-
-    def decode(self, x):
-        return self.decoder(x)
-
-    def forward(self, D):
-        """
-        Forward path through the meta-feature autoencoder
-        :param D: input tensor
-        :return: tuple: output tensor
-        """
-        return self.decode(self.encode(D))
-
-    def _loss_reconstruction(self, D0, D0_fwd, *args, **kwargs):
-        # reconstruction loss (Autoencoder loss)
-        # its purpose is to avoid simple single point solution with catastrophic
-        # information loss - in the absence of a repelling force.
-        return torch.nn.functional.mse_loss(D0, D0_fwd)
-
-    def _loss_datasets(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
-
-        reconstruction = self._loss_reconstruction(D0, D0_fwd)
-        # batch similarity order + no_repellents
-        no_comparisons = A1.shape[1]
-        similarity_order_ind = torch.stack([torch.argsort(self.cossim(a0, a1)) for a0, a1 in zip(A0, A1)])
-        no_repellent = int(no_comparisons * self.repellent_share)
-
-        # find the repellent forces
-        repellents = similarity_order_ind[:, :no_repellent]
-        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
-        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
-        mutual_weighted_dist = [(1 - self.cossim(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
-        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
-
-        # find the attracting forces
-        attractors = similarity_order_ind[:, no_repellent:]
-        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
-        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
-        mutual_weighted_dist = [self.cossim(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
-        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
-
-        return torch.stack([data_attractor, (-1) * data_repellent, reconstruction]) @ self.weights[:3]
-
-    def _loss_algorithms(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
-        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
-        # TODO check that direction (sign) is correct!
-        # compute the distance between algos and D0 (batch) dataset in embedding space
-        # and weigh the distances by the algorithm's performances
-        # --> pull is normalized by batch size & number of algorithms
-        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
-        # TODO use torch.cdist for distance matrix calculation!
-        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
-        return (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
-
-    def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
-        """
-        Creates a pairwise (dataset-wise) loss that
-        a) enforces a reconstruction of the datasets meta features (i.e. we
-        have a meaningful embedding)
-        b) ensure, that algorithms that perform good on datasets are drawn towards
-        those datasets in embedding space.
-        c) pull together datasets, if similar algorithms performed well on them.
-
-        # Consider: use of squared/linear/learned exponential (based on full
-        # prediction: top_k selection) algo performance for weighing?
-        # Consider: that the 90% performance should also be part of the loss
-        # this might allow to get a ranking immediately from the distances in
-        # embedding space!
-
-        :param D0: Dataset 0 meta features
-        :param D0_fwd: autoencoder reconstruction of Dataset 0 meta features
-        :param Z0_data: embedding of dataset 0 meta features
-        :param Z1_data: embedding of dataset 1 meta features
-        :param A0: vector of algorithm performances on dataset 0
-        :param A1: vector of algorithm performances on dataset 1
-        :param Z_algo: algorithm embedding vector of same dim as Z_data
-
-
-        :return: scalar.
-        """
-
-        algo_pull = self._loss_algorithms(D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
-
-        gravity = self._loss_datasets(
-            D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
-
-        return torch.stack([gravity, self.weights[-1] * algo_pull, ])
-
-    def train_gravity(self, train_dataloader, test_dataloader, epochs, lr=0.001):
-        """
-        Two step training:
-        1) Pretraining using reconstruction loss
-        2) Training using gravity loss (reconstruction + attraction + repellent +
-        :param train_dataloader:
-        :param test_dataloader:
-        :param epochs: list of int (len 2): epochs for step 1) and 2) respectively
-        :param lr:
-        :return:
-        """
-        name = self.__class__.__name__
-        print(f'\nPretraining {name} with reconstruction loss: ')
-        self._train(epochs[0], self._loss_reconstruction, train_dataloader, test_dataloader)
-
-        print(f'\nTraining {name} with gravity loss:')
-        return self._train(epochs[1], self.loss_gravity, train_dataloader, test_dataloader, lr=lr)
-
-    def train_schedule(self, train_dataloader, test_dataloader, epochs=[100, 100, 100], lr=0.001):
-        # Consider Marius idea to first find a reasonable data representation
-        #  and only than train with the algorithms
-
-        # pretrain
-        name = self.__class__.__name__
-        print(f'\nPretraining {name} with reconstruction loss:')
-        self._train(epochs[0], self._loss_reconstruction, train_dataloader, test_dataloader, lr)
-
-        # train datasets
-        print(f'\nTraining {name} with dataset loss:')
-        # self._train(self._loss_datasets, train_dataloader, test_dataloader, epochs=epochs[1], lr=lr)
-        self.freeze_train(epochs[1], self._loss_datasets, train_dataloader, test_dataloader, lr)
-
-        # train algorithms
-        print(f'\nTraining {name} with algorithm:')
-        return self._train(epochs[2], self._loss_algorithms, train_dataloader, test_dataloader, lr)
-
-    def freeze_train(self, epochs, *args):
-        """
-        unfreeze from the outer to the inner of the autoencoder
-        :param epochs: total epochs that are to be trained
-        :param args: args passed to _train()
-        """
-        # find those layers that need to be frozen
-        enc = [l for l in self.encoder if isinstance(l, nn.Linear)]
-        dec = [l for l in reversed(self.decoder) if isinstance(l, nn.Linear)]
-
-        enc_bn = [l for l in self.encoder if isinstance(l, nn.BatchNorm1d)]
-        dec_bn = [l for l in reversed(self.encoder) if isinstance(l, nn.BatchNorm1d)]
-
-        # linear intervals for unfreezing
-        no_freeze_steps = len(enc)
-
-        # freeze all intermediate layers
-        freeze([*enc, *dec, *enc_bn, *dec_bn], unfreeze=False)
-
-        # scheduler for the layers that are iteratively unfrozen
-        unfreezer = zip(enc, dec, enc_bn, dec_bn)
-
-        for i in range(no_freeze_steps):
-            # determine which layers are melted
-            en, de, ebn, dbn = unfreezer.__next__()
-            freeze([en, de, ebn, dbn], unfreeze=True)
-            self._train(epochs // no_freeze_steps, *args)
-
-    def _train(self, epochs, loss_fn, train_dataloader, test_dataloader, lr=0.001):
-        losses = []
-        test_losses = []
-
-        tracking = []
-        # check that only require_grad tensors are optimized (used for freezing)
-        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr)
-        for e in tqdm(range(epochs)):
-            for i, data in enumerate(train_dataloader):
-                D0, D1, A0, A1 = data
-
-                D0 = D0.to(self.device)
-                D1 = D1.to(self.device)
-                A0 = A0.to(self.device)
-                A1 = A1.to(self.device)
-                optimizer.zero_grad()
-
-                # calculate embedding
-                D0_fwd = self.forward(D0)
-
-                # todo not recalculate the encoding
-                Z0_data = self.encode(D0)
-                Z1_data = torch.stack([self.encode(d) for d in D1])
-
-                # look if there is representation collapse:
-
-                # calculate "attracting" forces.
-                loss = loss_fn(D0, D0_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
-
-                # gradient step
-                loss.backward()
-                optimizer.step()
-                # TODO check convergence: look if neither Z_algo nor Z_data move anymore! ( infrequently)
-
-            losses.append(loss)
-
-            # validation every e epochs
-            test_timer = 10
-            test_losses = []
-            # if e % test_timer == 0:
-            #     # look at the gradient step's effects on validation data
-            #     D_test = train_dataloader.dataset.datasets_meta_features
-            #     D_test = D_test.to(self.device)
-            #     Z_data = self.encode(D_test)
-            #
-            #     tracking.append((self.Z_algo.data.clone(), Z_data))
-
-            # TODO validation procedure
-
-        return tracking, losses, test_losses
-
-    def predict_algorithms(self, D, topk):
-        """
-        Find the topk performing algorithm candidates.
-
-        :param D: meta features of dataset D
-        :param topk: number of candidate algorithms to return.
-        :return: set of indicies representing likely good performing algorithms based on their
-        distance in embedding space.
-        """
-        # embed dataset.
-        self.eval()
-
-        with torch.no_grad():
-            Z_data = self.encode(D)
-
-            # find k-nearest algorithms.
-            # sort by distance in embedding space.
-            dist_mat = torch.cdist(Z_data, self.Z_algo)
-            _, top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
-
-        self.train()
-
-        return top_algo
-import torch
-import torch.nn as nn
-
-
-
-class VAE(AE):
-    # TODO allow for algo meta features
-    # def __init__(
-    #     self,
-    #     input_dim: int = 10,
-    #     hidden_dims: List[int] = [8,4],
-    #     embedding_dim: int = 2,
-    #     weights: List[float]=[1.0, 1.0, 1.0, 1.0],
-    #     repellent_share: float =0.33,
-    #     n_algos: int =20,
-    #     device=None,
-    # ):
-    #     """
-    #
-    #     :param nodes: list of number of nodes from input to output
-    #     :param weights: list of floats indicating the weights in the loss:
-    #     reconstruction, algorithm pull towards datasets, data-similarity-attraction,
-    #     data-dissimilarity-repelling.
-    #     :param n_algos: number of algorithms to place in the embedding space
-    #     """
-    #     super().__init__()
-    #     self.device = device
-    #     self.weights = torch.tensor(weights).to(device)
-    #     self.repellent_share = repellent_share
-    #
-    #     # construct the autoencoder
-    #     self.embedding_dim = embedding_dim
-    #     self.input_dim = input_dim
-    #     self.hidden_dims = hidden_dims
-    #
-    #     self._build_network()
-    #
-    #     # initialize the algorithms in embedding space
-    #     self.n_algos = n_algos
-    #     self.embedding_dim = self.embedding_dim
-    #     self.Z_algo = nn.Parameter(
-    #         td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
-    #     )
-    #
-    #     self.to(self.device)
-
-    def _build_network(self) -> None:
-        """
-        Builds the encoder and decoder networks
-        """
-        # Make the Encoder
-        modules = []
-
-        hidden_dims = self.hidden_dims
-        input_dim = self.input_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        
-        self.encoder = torch.nn.Sequential(*modules)
-
-        # Mean and std_dev for the latent distribution
-        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
-        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
-
-        # modules.append(nn.Linear(input_dim, self.latent_dim))
-        # modules.append(nn.BatchNorm1d(self.latent_dim))
-        # modules.append(nn.Dropout(p=0.5))
-        # modules.append(nn.ReLU())
-
-        
-
-        # Make the decoder
-        modules = []
-
-        hidden_dims.reverse()
-        input_dim = self.embedding_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid()) 
-
-
-        self.decoder = nn.Sequential(*modules)
-
-    
-    def reparameterize(
-                    self, 
-                    mu: torch.Tensor, 
-                    logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Reparameterization trick to sample from N(mu, var)
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        
-        return eps * std + mu
-    
-    def encode(self, x):
-        
-        # Forward pass the input through the network
-        result = self.encoder(x)
-
-        # Get the mean and standard deviation from the output 
-        mu = self.fc_mu(result)
-        log_var = self.fc_var(result)
-
-        # TODO: Plot latent distributions
-
-
-
-        # Sample a latent vector using the reparameterization trick
-        z = self.reparameterize(mu, log_var)
-
-        return z        
-
-    def decode(self, x):
-        return self.decoder(x)
-import random
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import torch
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from torch.utils.data import Dataset
 
 
 class Dataset_Gravity(Dataset):
@@ -568,7 +57,7 @@ class Dataset_Gravity(Dataset):
 
     # Encoder must be available across instances
     enc_cat = OneHotEncoder(sparse=False, handle_unknown='ignore')
-    enc_num = StandardScaler()
+    enc_num = MinMaxScaler()
 
     # ensure that we will not ignore any observations for categorical variables
     enc_cat.fit(
@@ -948,12 +437,11 @@ class Dataset_Gravity(Dataset):
         ]))
 
     n_features = 0
-    deselected = set()
-    nA = None  # number of algorithms
+    deselected = {}
 
-    def __init__(self,
+    def __init__(self, dataset_meta_features, learning_curves, algorithms_meta_features,
                  no_competitors=11,
-                 seed=123456, ):
+                 deselect=0, topk=10, deselection_metric='skew', seed=123456, ):
         """
 
         :param dataset_meta_features:
@@ -969,8 +457,20 @@ class Dataset_Gravity(Dataset):
         is pairwise comparisons
         """
         self.no_competitors = no_competitors
+        self.deselect = deselect
+        self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
 
-        # self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
+        if deselect > 0:
+            self.deselected = self._reduce_algo_space(removals=deselect, k=topk, mode=deselection_metric)
+            # redoit all again, so that the getitem never sees these algos
+            self.preprocess_with_known_deselection(self.deselected, dataset_meta_features, learning_curves,
+                                                   algorithms_meta_features)
+
+        self.nA = len(self.algo_final_performances.columns)
+
+        # needed for plotting
+        self.raw_learning_curves = learning_curves
+        self.raw_dataset_meta_features = dataset_meta_features
 
         # seeding
         random.seed(seed)
@@ -1002,94 +502,6 @@ class Dataset_Gravity(Dataset):
 
         return D0, D1, A0, A1
 
-    def preprocess_learning_curves(self, learning_curves):
-        """
-        facilitate later calculations on learning curves:
-        For scalar calculations use self.lc and assign a new attribute for a calculated
-        scalar property
-        for algorithm aggregations use self.lc_algos
-        for dataset aggregations use self.lc_datasets
-        :param learning_curves:
-
-        """
-        ids_algos = learning_curves[list(learning_curves.keys())[0]].keys()
-        self.ids_algos = [int(i) for i in ids_algos]
-        self.ids_datasets = list(learning_curves.keys())
-
-        self.lc = {(d, int(a)): lc for d, algos in learning_curves.items()
-                   for a, lc in algos.items()}
-
-        # Depreciate EDA prints
-        # pd.set_option("display.max_rows", None, "display.max_columns", None)
-        # print('\ntimestamp distribution')
-        # print(pd.Series(len(lc.timestamps) for k, lc in self.lc.items()).value_counts().sort_index())
-        #
-        # print('\nsingle timestamp scores')
-        # print(pd.Series(lc.scores for k, lc in self.lc.items() if len(lc.timestamps) == 1))
-
-        # ensure correct ordering
-        dataset_major = sorted(self.lc.keys(), key=lambda tup: tup[0])
-        algo_major = sorted(self.lc.keys(), key=lambda tup: tup[1])
-
-        # lookup object ids based on aggregation
-        self.algos = {a: [k for k in dataset_major if k[1] == a]
-                      for a in self.ids_algos}
-        self.datasets = {d: [k for k in algo_major if k[0] == d]
-                         for d in self.ids_datasets}
-
-        # lookup actual object based on aggregation
-        self.lc_algos = {a: [self.lc[k] for k in dataset_major if k[1] == a]
-                         for a in self.ids_algos}
-        self.lc_datasets = {d: [self.lc[k] for k in algo_major if k[0] == d]
-                            for d in self.ids_datasets}
-
-        # Depreciate remove this EDA
-        # print('\nper algo distribution of timestamps')
-        # print(pd.DataFrame({a_id: pd.Series([len(lc.timestamps) for lc in algo_lcs]).value_counts().sort_index()
-        #  for a_id, algo_lcs in self.lc_algos.items()}))
-        #
-        # print('\nper dataset distribution of timestamps')
-        # print(pd.DataFrame({a_id: pd.Series([len(lc.timestamps) for lc in algo_lcs]).value_counts().sort_index()
-        #        for a_id, algo_lcs in self.lc_datasets.items()}))
-        #
-        # raise ValueError('debugging EDA')
-
-        # add identifier to lc object
-        for k, lc in self.lc.items():
-            lc.id = k
-
-    def _aggregate_scalars_to_df(self, scalar: str):
-        """
-        read out the attribute from all the learning curves and create a dataframe
-        from it.
-        :param scalar:str. must be existing attribute to the learning curves.
-        :return: pd.DataFrame (datasets, algorithms)
-        """
-        # create a dataframe out of it
-        dataset_dict = {}
-        for d, algos in self.lc_datasets.items():
-            dataset_dict[d] = [lc.__dict__[scalar] for lc in algos]
-
-        return pd.DataFrame.from_dict(dataset_dict, orient='index')
-
-    def _calc_timestamp_distribution(self, stamp: int):
-
-        for lc in self.lc.values():
-            # to avoid errors due to single timestmaps
-            if len(lc.timestamps) > stamp:
-                lc.tmp = lc.timestamps[stamp]
-            else:
-                lc.tmp = lc.timestamps[-1]
-        df = self._aggregate_scalars_to_df('tmp')
-
-        # clean up
-        for lc in self.lc.values():
-            delattr(lc, 'tmp')
-
-        return df
-
-    # DEPRECIATED ---------------------------------------------------------------
-    # instead use dataset_g2.py's methods
     def preprocess(
             self,
             dataset_meta_features,
@@ -1111,45 +523,28 @@ class Dataset_Gravity(Dataset):
         """
         self.nD = len(dataset_meta_features.keys())
 
-        # fixme: remove this duplicate line: (debugging purpose only)
-        self.preprocess_learning_curves(learning_curves)
-
         # changing keys to int
-        # algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()}
-        # dataset_meta_features = {k: v for k, v in dataset_meta_features.items()}
-        learning_curves = {k: {k1: v1 for k1, v1 in v.items()}
+        algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()}
+        dataset_meta_features = {k: v for k, v in dataset_meta_features.items()}
+        learning_curves = {k: {int(k1): v1 for k1, v1 in v.items()}
                            for k, v in learning_curves.items()}
-        # Depreciate
+
         self._preprocess_meta_features(dataset_meta_features)
         self._preprocess_learning_curves(algorithms_meta_features, learning_curves)
         self._preporcess_scalar_properties(self.algo_learning_curves)
         self._preprocess_dataset_properties(learning_curves, dataset_meta_features)
         self._preprocess_thresholded_algo_performances(k=10)
 
-        # Consider: this is the new version of preprocessing
-        Dataset_Gravity.nA = len(self.algo_final_performances.columns)
-        self.preprocess_learning_curves(learning_curves)
-        self._calc_timestamp_distribution(2)
-
-        # needed for plotting
-        self.raw_learning_curves = learning_curves
-        self.raw_dataset_meta_features = dataset_meta_features
-
-    def preprocess_with_known_deselection(self,
-                                          dataset_meta_features, learning_curves,
+    def preprocess_with_known_deselection(self, deselected, dataset_meta_features, learning_curves,
                                           algorithms_meta_features):
         """
         wrapper around preprocess to allow user to algin validation and test datasets in terms of algorithm
-        deselection. (previous call to _reduce algo space resulted in deselection of algos)
+        deselection.
         """
-        # deselect the algorithms that had been deselected
-        learning_curves = {d: {a: curve for a, curve in algos.items()
-                               if a not in Dataset_Gravity.deselected}
-                           for d, algos in learning_curves.items()}
-        algorithms_meta_features = {k: v for k, v in algorithms_meta_features.items()
-                                    if k not in Dataset_Gravity.deselected}
-
-        self.preprocess(dataset_meta_features, learning_curves, algorithms_meta_features)
+        self.preprocess(dataset_meta_features,
+                        {d: {a: curve for a, curve in algos.items() if int(a) not in deselected}
+                         for d, algos in learning_curves.items()},
+                        {k: v for k, v in algorithms_meta_features.items() if int(k) not in deselected})
 
     def _preprocess_learning_curves(self, algorithms_meta_features, learning_curves):
         """Enrich the learning curve objects with properties computed on the learning curve
@@ -1168,8 +563,7 @@ class Dataset_Gravity(Dataset):
                 self.algo_learning_curves[str(algo_id)][ds_id] = curve
 
                 # final performance
-                # guarding against 0 devision error
-                curve.final_performance = curve.scores[-1] if curve.scores[-1] > 0. else 0.0001
+                curve.final_performance = curve.scores[-1]
 
                 # how much in % of the final performance
                 curve.convergence_share = curve.scores / curve.final_performance
@@ -1225,7 +619,6 @@ class Dataset_Gravity(Dataset):
         """create a df with meta features of each dataset"""
 
         # Preprocess dataset meta data (remove the indiscriminative string variables)
-
         df = pd.DataFrame(
             list(dataset_meta_features.values()),
             index=dataset_meta_features.keys())
@@ -1353,39 +746,36 @@ class Dataset_Gravity(Dataset):
 
         Core idea is to iteratively remove columns from self.algo_final_performances
         by choosing the ones that reduce the overall row score the least.
-
         """
 
-        # def calc_ecdf(data, n_bins=100):
-        #     count, bins_count = np.histogram(data, bins=n_bins)
-        #
-        #     # finding the PDF of the histogram using count values
-        #     pdf = count / sum(count)
-        #     cdf = np.cumsum(pdf)
-        #     return bins_count[1:], cdf
-        #
-        # def calc_pdf_integral0(data, n_bins):
-        #     """
-        #     Calculate the probability mass of x <= 0
-        #     :param data:
-        #     :param n_bins:
-        #     :return: probability of below x=0
-        #     """
-        #     x, cdf = calc_ecdf(data, n_bins)
-        #     return cdf[np.argmax(x >= 0)]
+        def calc_ecdf(data, n_bins=100):
+            count, bins_count = np.histogram(data, bins=n_bins)
+
+            # finding the PDF of the histogram using count values
+            pdf = count / sum(count)
+            cdf = np.cumsum(pdf)
+            return bins_count[1:], cdf
+
+        def calc_pdf_integral0(data, n_bins):
+            """
+
+            :param data:
+            :param n_bins:
+            :return: probability of below x=0
+            """
+            x, cdf = calc_ecdf(data, n_bins)
+            return cdf[np.argmax(x >= 0)]
 
         df = self.algo_final_performances
         k_inv = len(df.columns) - k
-        # assert k_inv >= len(df.columns) // removals
-        # fixme there must be some assertation
-        #  to ensure that we always will have at least k competitors
 
         # init for selection
         deselected = set()
         remaining = set(df.columns)
-        # FIXME: argsort is behaving erradically
-        performance_baseline = df[np.argsort(df, axis=1) >= k].mean(axis=1)
+
         performances = {k: None for k in df.loc[:, remaining]}
+        performance_baseline = df.max(axis=1) - \
+                               df[np.argsort(df, axis=1) >= k_inv].mean(axis=1, )
         skew_baseline = performance_baseline.skew(axis=0)
         for r in range(removals):
 
@@ -1398,30 +788,21 @@ class Dataset_Gravity(Dataset):
                 # compute average performance increase (on topk algos) on a dataset (value) deselecting this algo (key)
                 # An improvement can come from deselecting a below mean performing algo
                 # A deterioration comes from removing above mean performing algo on that dataset
-                consider = k_inv - len(deselected)  # rank threshold (minimum rank to get into topk) - this changes
-                # once we start removing algorithms
-
-                # tie breaking by order in array
-                ranks = pd.DataFrame(ss.rankdata(current_df, axis=1, method='ordinal'))
-                ranks.columns, ranks.index = current_df.columns, current_df.index
-
-                avg_remaining_topk_perf = current_df[ranks >= consider].mean(axis=1)
-                performances[algo] = performance_baseline - avg_remaining_topk_perf
+                consider = k_inv - len(deselected)  # rank threshold (minimum rank to get into topk)
+                absolute_perf = current_df[np.argsort(current_df, axis=1) >= consider].mean(axis=1)
+                performances[algo] = performance_baseline - (current_df.max(axis=1) - absolute_perf)
 
             if mode == 'skew':
-                # remove the algo, that reduces the skewness of the baseline the least
-                # i.e. it has the least value to it
-                assert all(pd.DataFrame(performances) < 0)
+                # remove the algo, that reduces the skewness of the baseline the most
                 skew = pd.DataFrame(performances).skew(axis=0)
                 deselected_algo = skew.index[np.argmin(skew_baseline - skew)]
                 skew_baseline = skew[deselected_algo]
 
-            # elif mode == '0threshold':
-            #     # remove the algo that has least density mass on reducing the overall
-            #     # performance of datasets (compared to current baseline)
-            #     deselected_algo = pd.Series(
-            #         {k: calc_pdf_integral0(v, n_bins=100)
-            #          for k, v in performances.items()}).argmin()
+            elif mode == '0threshold':
+                # remove the algo that has least density mass on reducing the overall
+                # performance of datasets (compared to current baseline)
+                deselected_algo = pd.Series({k: calc_pdf_integral0(v, n_bins=100)
+                                             for k, v in performances.items()}).argmin()
 
             deselected.add(deselected_algo)
             remaining.remove(deselected_algo)
@@ -1438,7 +819,7 @@ class Dataset_Gravity(Dataset):
             # plt.title(f'Leave this algo out decrease in top-{k} avg. performance on a dataset')
             # plt.show()
 
-        Dataset_Gravity.deselected = deselected
+        return deselected
 
     def plot_learning_curves(self, dataset_id=9):
 
@@ -1474,25 +855,472 @@ class Dataset_Gravity(Dataset):
         plt.title(title)
         plt.legend(loc='upper right')
         plt.show()
-import matplotlib.pyplot as plt
-import pandas as pd
-import torch
-from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
-from torch.utils.data import DataLoader
 
-# FIXME: remove this block for agent_submission
+
+class BaseEncoder(nn.Module):
+    """
+    Base class for encoders thtat are used to get latent representations
+    of the data and the algorithms.
+    """
+
+    def __init__(self) -> None:
+        super(BaseEncoder, self).__init__()
+
+    def _build_network(self) -> None:
+        """
+        Bulid the network.
+        """
+        raise NotImplementedError
+
+    def encode(self, input: torch.Tensor) -> torch.Tensor:
+        """
+        Encodes the context.
+        """
+        raise NotImplementedError
+
+    def decode(self, input: torch.Tensor) -> torch.Tensor:
+        """
+        Decodes the context.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def forward(self, D) -> torch.Tensor:
+        """
+        Forward path through the network to get the encoding
+        """
+        pass
+
+    @abstractmethod
+    def loss_gravity(self) -> torch.Tensor:
+        """
+        Loss function for gravity based training.
+        """
+        pass
+
+    @abstractmethod
+    def predict_algorithms(self) -> torch.Tensor:
+        """
+        Predict the algorithms
+        """
+        pass
+
+
+class AE(BaseEncoder):
+    # TODO allow for algo meta features
+    def __init__(
+            self,
+            input_dim: int = 10,
+            hidden_dims: List[int] = [8, 4],
+            embedding_dim: int = 2,
+            weights=[1.0, 1.0, 1.0, 1.0],
+            repellent_share=0.33,
+            n_algos=20,
+            device=None,
+    ):
+        """
+
+        :param nodes: list of number of nodes from input to output
+        :param weights: list of floats indicating the weights in the loss:
+        reconstruction, algorithm pull towards datasets, data-similarity-attraction,
+        data-dissimilarity-repelling.
+        :param n_algos: number of algorithms to place in the embedding space
+        """
+        super().__init__()
+        self.device = device
+        weights = [weights[0], *weights[2:], weights[1]]  # fixme: change the doc instead!
+        self.weights = torch.tensor(weights).to(device)
+        self.repellent_share = repellent_share
+
+        # construct the autoencoder
+        self.latent_dim = embedding_dim
+        self.input_dim = input_dim
+        self.hidden_dims = hidden_dims
+
+        self._build_network()
+        self.cossim = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
+
+        # initialize the algorithms in embedding space
+        self.n_algos = n_algos
+        self.embedding_dim = self.latent_dim
+        self.Z_algo = nn.Parameter(
+            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
+        )
+
+        self.to(self.device)
+
+    def _build_network(self) -> None:
+        """
+        Builds the encoder and decoder networks
+        """
+        # Make the Encoder
+        modules = []
+
+        hidden_dims = self.hidden_dims
+        input_dim = self.input_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.latent_dim))
+        modules.append(nn.BatchNorm1d(self.latent_dim))
+        modules.append(nn.Dropout(p=0.5))
+        modules.append(nn.ReLU())
+
+        self.encoder = torch.nn.Sequential(*modules)
+
+        # Make the decoder
+        modules = []
+
+        hidden_dims.reverse()
+        input_dim = self.latent_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.input_dim))
+        modules.append(nn.Sigmoid())  # input_dim, self.input_dim
+
+        self.decoder = nn.Sequential(*modules)
+
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, x):
+        return self.decoder(x)
+
+    def forward(self, D):
+        """
+        Forward path through the meta-feature autoencoder
+        :param D: input tensor
+        :return: tuple: output tensor
+        """
+        return self.decode(self.encode(D))
+
+    def _loss_reconstruction(self, D0, D0_fwd, *args, **kwargs):
+        # reconstruction loss (Autoencoder loss)
+        # its purpose is to avoid simple single point solution with catastrophic
+        # information loss - in the absence of a repelling force.
+        return torch.nn.functional.mse_loss(D0, D0_fwd)
+
+    def _loss_datasets(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+
+        reconstruction = self._loss_reconstruction(D0, D0_fwd)
+        # batch similarity order + no_repellents
+        no_comparisons = A1.shape[1]
+        similarity_order_ind = torch.stack([torch.argsort(self.cossim(a0, a1)) for a0, a1 in zip(A0, A1)])
+        no_repellent = int(no_comparisons * self.repellent_share)
+
+        # find the repellent forces
+        repellents = similarity_order_ind[:, :no_repellent]
+        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
+        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
+        mutual_weighted_dist = [(1 - self.cossim(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
+        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
+
+        # find the attracting forces
+        attractors = similarity_order_ind[:, no_repellent:]
+        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
+        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
+        mutual_weighted_dist = [self.cossim(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
+                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
+        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
+
+        return torch.stack([data_attractor, (-1) * data_repellent, reconstruction]) @ self.weights[:3]
+
+    def _loss_algorithms(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
+        # TODO check that direction (sign) is correct!
+        # compute the distance between algos and D0 (batch) dataset in embedding space
+        # and weigh the distances by the algorithm's performances
+        # --> pull is normalized by batch size & number of algorithms
+        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
+        # TODO use torch.cdist for distance matrix calculation!
+        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
+        return (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
+
+    def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
+        """
+        Creates a pairwise (dataset-wise) loss that
+        a) enforces a reconstruction of the datasets meta features (i.e. we
+        have a meaningful embedding)
+        b) ensure, that algorithms that perform good on datasets are drawn towards
+        those datasets in embedding space.
+        c) pull together datasets, if similar algorithms performed well on them.
+
+        # Consider: use of squared/linear/learned exponential (based on full
+        # prediction: top_k selection) algo performance for weighing?
+        # Consider: that the 90% performance should also be part of the loss
+        # this might allow to get a ranking immediately from the distances in
+        # embedding space!
+
+        :param D0: Dataset 0 meta features
+        :param D0_fwd: autoencoder reconstruction of Dataset 0 meta features
+        :param Z0_data: embedding of dataset 0 meta features
+        :param Z1_data: embedding of dataset 1 meta features
+        :param A0: vector of algorithm performances on dataset 0
+        :param A1: vector of algorithm performances on dataset 1
+        :param Z_algo: algorithm embedding vector of same dim as Z_data
+
+
+        :return: scalar.
+        """
+
+        algo_pull = self._loss_algorithms(D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
+
+        gravity = self._loss_datasets(
+            D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
+
+        return torch.stack([gravity, self.weights[-1] * algo_pull, ])
+
+    def train_gravity(self, train_dataloader, test_dataloader, epochs, lr=0.001):
+        """
+        Two step training:
+        1) Pretraining using reconstruction loss
+        2) Training using gravity loss (reconstruction + attraction + repellent +
+        :param train_dataloader:
+        :param test_dataloader:
+        :param epochs: list of int (len 2): epochs for step 1) and 2) respectively
+        :param lr:
+        :return:
+        """
+        name = self.__class__.__name__
+        print(f'\nPretraining {name} with reconstruction loss: ')
+        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0])
+
+        print(f'\nTraining {name} with gravity loss:')
+        return self._train(self.loss_gravity, train_dataloader, test_dataloader, epochs[1], lr=lr)
+
+    def train_schedule(self, train_dataloader, test_dataloader, epochs=[100, 100, 100], lr=0.001):
+        # Consider Marius idea to first find a reasonable data representation
+        #  and only than train with the algorithms
+
+        # pretrain
+        name = self.__class__.__name__
+        print(f'\nPretraining {name} with reconstruction loss:')
+        self._train(self._loss_reconstruction, train_dataloader, test_dataloader, epochs[0], lr)
+
+        # train datasets
+        print(f'\nTraining {name} with dataset loss:')
+        self._train(self._loss_datasets, train_dataloader, test_dataloader, epochs[1], lr)
+
+        # train algorithms
+        print(f'\nTraining {name} with algorithm:')
+        return self._train(self._loss_algorithms, train_dataloader, test_dataloader, epochs[2], lr)
+
+    def _train(self, loss_fn, train_dataloader, test_dataloader, epochs, lr=0.001):
+        losses = []
+        test_losses = []
+
+        tracking = []
+        optimizer = torch.optim.Adam(self.parameters(), lr)
+        for e in range(epochs):
+            for i, data in enumerate(train_dataloader):
+                D0, D1, A0, A1 = data
+
+                D0 = D0.to(self.device)
+                D1 = D1.to(self.device)
+                A0 = A0.to(self.device)
+                A1 = A1.to(self.device)
+                optimizer.zero_grad()
+
+                # calculate embedding
+                D0_fwd = self.forward(D0)
+
+                # todo not recalculate the encoding
+                Z0_data = self.encode(D0)
+                Z1_data = torch.stack([self.encode(d) for d in D1])
+
+                # look if there is representation collapse:
+
+                # calculate "attracting" forces.
+                loss = loss_fn(D0, D0_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
+
+                # gradient step
+                loss.backward()
+                optimizer.step()
+                # TODO check convergence: look if neither Z_algo nor Z_data move anymore! ( infrequently)
+
+            losses.append(loss)
+
+            # validation every e epochs
+            test_timer = 10
+            test_losses = []
+            # if e % test_timer == 0:
+            #     # look at the gradient step's effects on validation data
+            #     D_test = train_dataloader.dataset.datasets_meta_features
+            #     D_test = D_test.to(self.device)
+            #     Z_data = self.encode(D_test)
+            #
+            #     tracking.append((self.Z_algo.data.clone(), Z_data))
+
+            # TODO validation procedure
+
+        return tracking, losses, test_losses
+
+    def predict_algorithms(self, D, topk):
+        """
+        Find the topk performing algorithm candidates.
+
+        :param D: meta features of dataset D
+        :param topk: number of candidate algorithms to return.
+        :return: set of indicies representing likely good performing algorithms based on their
+        distance in embedding space.
+        """
+        # embed dataset.
+        self.eval()
+
+        with torch.no_grad():
+            Z_data = self.encode(D)
+
+            # find k-nearest algorithms.
+            # sort by distance in embedding space.
+            dist_mat = torch.cdist(Z_data, self.Z_algo)
+            _, top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
+
+        self.train()
+
+        return top_algo
+
+
+class VAE(AE):
+    # TODO allow for algo meta features
+    def __init__(
+            self,
+            input_dim: int = 10,
+            hidden_dims: List[int] = [8, 4],
+            embedding_dim: int = 2,
+            weights: List[float] = [1.0, 1.0, 1.0, 1.0],
+            repellent_share: float = 0.33,
+            n_algos: int = 20,
+            device=None,
+    ):
+        """
+
+        :param nodes: list of number of nodes from input to output
+        :param weights: list of floats indicating the weights in the loss:
+        reconstruction, algorithm pull towards datasets, data-similarity-attraction,
+        data-dissimilarity-repelling.
+        :param n_algos: number of algorithms to place in the embedding space
+        """
+        super().__init__()
+        self.device = device
+        self.weights = torch.tensor(weights).to(device)
+        self.repellent_share = repellent_share
+
+        # construct the autoencoder
+        self.embedding_dim = embedding_dim
+        self.input_dim = input_dim
+        self.hidden_dims = hidden_dims
+
+        self._build_network()
+
+        # initialize the algorithms in embedding space
+        self.n_algos = n_algos
+        self.embedding_dim = self.embedding_dim
+        self.Z_algo = nn.Parameter(
+            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
+        )
+
+        self.to(self.device)
+
+    def _build_network(self) -> None:
+        """
+        Builds the encoder and decoder networks
+        """
+        # Make the Encoder
+        modules = []
+
+        hidden_dims = self.hidden_dims
+        input_dim = self.input_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        self.encoder = torch.nn.Sequential(*modules)
+
+        # Mean and std_dev for the latent distribution
+        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
+        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
+
+        # modules.append(nn.Linear(input_dim, self.latent_dim))
+        # modules.append(nn.BatchNorm1d(self.latent_dim))
+        # modules.append(nn.Dropout(p=0.5))
+        # modules.append(nn.ReLU())
+
+        # Make the decoder
+        modules = []
+
+        hidden_dims.reverse()
+        input_dim = self.embedding_dim
+
+        for h_dim in hidden_dims:
+            modules.append(nn.Linear(input_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
+            modules.append(nn.Dropout(p=0.5))
+            modules.append(nn.ReLU())
+            input_dim = h_dim
+
+        modules.append(nn.Linear(input_dim, self.input_dim))
+        modules.append(nn.Sigmoid())
+
+        self.decoder = nn.Sequential(*modules)
+
+    def reparameterize(
+            self,
+            mu: torch.Tensor,
+            logvar: torch.Tensor) -> torch.Tensor:
+        """
+        Reparameterization trick to sample from N(mu, var)
+        """
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+
+        return eps * std + mu
+
+    def encode(self, x):
+
+        # Forward pass the input through the network
+        result = self.encoder(x)
+
+        # Get the mean and standard deviation from the output
+        mu = self.fc_mu(result)
+        log_var = self.fc_var(result)
+
+        # TODO: Plot latent distributions
+
+        # Sample a latent vector using the reparameterization trick
+        z = self.reparameterize(mu, log_var)
+
+        return z
+
+    def decode(self, x):
+        return self.decoder(x)
 
 
 class Agent:
     encoder_class = {'AE': AE, 'VAE': VAE}
-    nA = None  # number of algorihtms used
 
     def __init__(
             self,
             number_of_algorithms,
             encoder: str = "AE",
             seed=123546,
-            suggest_topk=2
+            root_dir='',
+            suggest_topk=17
     ):
         """
         Initialize the agent
@@ -1503,19 +1331,24 @@ class Agent:
             The number of algorithms
 
         encoder : str
-            The encoder to use. 
+            The encoder to use.
             'AE' for the vanilla autoencoder
             'VAE' for the variational autoencoder
-        
+
         seed : int
             The seed for the random number generator
         """
 
-        Agent.nA = number_of_algorithms
+        self.nA = number_of_algorithms
+        self.times = [0.] * self.nA
         self.encoder = encoder
         self.seed = seed
 
+        self.root_dir = root_dir
         self.suggest_topk = suggest_topk
+        self.counter = 0
+        self.zero_flag = False
+
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -1582,14 +1415,12 @@ class Agent:
         dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
 
         # actual resetting
-        self.visits = {k: 0 for k in algorithms_meta_features.keys()}
         self.times = {k: 0. for k in algorithms_meta_features.keys()}
         self.obs_performances = {k: 0. for k in algorithms_meta_features.keys()}
 
         # NOTE: Is this required in the RL setting?
         # set delta_t's (i.e. budgets for each algo we'd like to inquire)
-        # self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
-        self.budgets = self.predict_initial_speed(dataset_meta_features_df_testing)
+        self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
 
         # predict the ranking of algorithms for this dataset
         self.learned_rankings = self.model.predict_algorithms(
@@ -1597,8 +1428,7 @@ class Agent:
             topk=self.nA
         )[0].tolist()
 
-        self.suggest_topk = len(self.learned_rankings)
-
+        self.total_budget = int(dataset_meta_features['time_budget'])
 
     def meta_train(self,
                    dataset_meta_features,
@@ -1614,6 +1444,9 @@ class Agent:
                    embedding_dim=5,
                    weights=[2.98744, 4.52075, 8.11511, 2.53756],
                    repellent_share=0.65758,
+                   deselect=0, 
+                   topk=17, 
+                   deselection_metric='skew',
                    training='schedule'):
         """
         Start meta-training the agent with the validation and test learning curves
@@ -1655,29 +1488,13 @@ class Agent:
 
         """
 
-        validation_data = dataset_meta_features, validation_learning_curves, algorithms_meta_features
-        test_data = dataset_meta_features, test_learning_curves, algorithms_meta_features
-
         # validation dataloader
-        self.valid_dataset = Dataset_Gravity(n_compettitors)
-        self.test_dataset = Dataset_Gravity(n_compettitors)
-
-        if len(Dataset_Gravity.deselected) == 0:
-            self.valid_dataset.preprocess(*validation_data)
-            self.test_dataset.preprocess(*test_data)
-        else:
-            print(f'The algorithms {Dataset_Gravity.deselected} have been deselected')
-            self.valid_dataset.preprocess_with_known_deselection(*validation_data)
-            self.test_dataset.preprocess_with_known_deselection(*test_data)
-            self.test_dataset.preprocess_with_known_deselection(*test_data)
-
-        print('\ntimestamp distribution')
-        print(pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
-
-        print('\nsingle timestamp scores')
-        print(pd.Series(lc.scores for k, lc in self.valid_dataset.lc.items() if len(lc.timestamps) == 1))
-
-        self.nA = self.valid_dataset.nA
+        self.valid_dataset = Dataset_Gravity(
+            dataset_meta_features,
+            validation_learning_curves,
+            algorithms_meta_features,
+            n_compettitors,
+            deselect, topk, deselection_metric)
 
         # # fixme: move following eda to Dataset_Gravity:
         # # (0) find out if there are algorithms that perform bad across all tasks
@@ -1724,7 +1541,24 @@ class Agent:
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
-            batch_size=batch_size)
+            batch_size=batch_size
+        )
+
+        self.test_dataset = Dataset_Gravity(
+            dataset_meta_features,
+            test_learning_curves,
+            algorithms_meta_features,
+            n_compettitors)
+
+        if len(self.valid_dataset.deselected) > 0:
+            print(f'The algorithms {self.valid_dataset.deselected} have been deselected')
+            # ensure test_data has exactly the same deselection of algorithms
+            self.test_dataset.preprocess_with_known_deselection(
+                self.valid_dataset.deselected,
+                dataset_meta_features,
+                test_learning_curves,
+                algorithms_meta_features)
+            self.nA = self.valid_dataset.nA
 
         self.test_dataloader = DataLoader(
             self.test_dataset,
@@ -1739,15 +1573,6 @@ class Agent:
 
         # meta_learn convergence speed
         self.meta_train_convergence_speed(confidence=0.2)
-        self.meta_train_initial_budgets(confidence=0.8)
-
-        # sanity check: would we surpass a timestamp (and if how many)
-        # predicted_init = self.predict_initial_speed(self.test_dataset.datasets_meta_features_df)
-        # D = self.test_dataset
-        # # D.lc_algos[19], predicted_init[19]
-        # {algo: [sum(soll >= ist) for soll, ist in
-        #         zip(predicted_init[algo], [lc.timestamps for lc in D.lc_algos[algo]])]
-        #  for algo in D.lc_algos.keys()}
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1770,6 +1595,19 @@ class Agent:
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
+        # TODO: checkpointing the model
+        # run_id = hash()
+        # TODO: append hashtable
+        # self.output_dir = f'{self.root_dir}/output/{self.encoder}{run_id}'
+        # check_or_create_dir(self.output_dir)
+        #
+        # torch.save(self.model, f'{self.output_dir}')
+
+        # self.plot_encoder_training(losses)
+        # self.plot_current_embedding()
+
+        # TODO: Add Bandit exploration
+        print()
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
@@ -1795,20 +1633,6 @@ class Agent:
             self.qr_models[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
             self.qr_models[algo].fit(X, Y[algo])
 
-    def meta_train_initial_budgets(self, confidence=0.8):
-        """
-        Since the enviroment penalizes allocating to little budget for the first step,
-        we calculate the second timestamp's distribution to ensure we have hit the first one
-        """
-        print('Training 2nd initial budget')
-        X = self.valid_dataset.datasets_meta_features_df
-        Y = self.valid_dataset._calc_timestamp_distribution(2)
-
-        self.qr_models_init = {k: None for k in Y.columns}
-        for algo in Y.columns:
-            self.qr_models_init[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
-            self.qr_models_init[algo].fit(X, Y[algo])
-
     def predict_convergence_speed(self, df):
         """Predict the 90% convergence time budget we would like to allocate for each algorithm
         requires meta_train_convergence_speed"""
@@ -1817,19 +1641,7 @@ class Agent:
 
         prediction_convergence_speed = {}
         for algo in range(self.nA):
-            prediction_convergence_speed[int(algo)] = self.qr_models[str(algo)].predict(df)[0]
-
-        return prediction_convergence_speed
-
-    def predict_initial_speed(self, df):
-        """Predict the 90% convergence time budget we would like to allocate for each algorithm
-        requires meta_train_convergence_speed"""
-        if not hasattr(self, 'qr_models'):
-            raise ValueError('meta_train_convergence_speed must be executed beforehand')
-
-        prediction_convergence_speed = {}
-        for algo in range(self.nA):
-            prediction_convergence_speed[int(algo)] = self.qr_models_init[algo].predict(df)
+            prediction_convergence_speed[int(algo)] = self.qr_models[str(algo)].predict(df)
 
         return prediction_convergence_speed
 
@@ -1869,33 +1681,48 @@ class Agent:
         (9, 9, 80)
         """
 
-        trials = sum(self.visits.values())
-        counter = trials % self.suggest_topk  # RoundRobin counter
-        self.A = self.learned_rankings[counter]
+        #trials = sum(1 if t != 0 else 0 for t in self.times.values())
+                
 
-        # keep track of spent budget & observed performances
-        if observation is None:
-            # (0) initial selection of A_star
-            self.A_star = self.learned_rankings[0]
+        # If the counter is 0, initialize A_star = A
+        if self.counter == 0:
+            self.A_star = self.learned_rankings[self.counter]
+            self.A = self.learned_rankings[self.counter]
+        
+        #Otherwise, only update A
+        else: 
 
-        else:
-            # normal state
-            # (1) update state information
-            A, C_A, R = observation
-            self.visits[str(A)] += 1
-            self.times[str(A)] += C_A
-            self.obs_performances[str(A)] = R
-
-            # (2) check if we have a new incumbent
-            # TODO get a time discounting in here (because A_star has more time
-            #  allocated already than A)
+            if observation is not None:  # initial observation is None
+                A, C_A, R = observation
+                self.times[str(A)] += C_A
+                self.obs_performances[str(A)] = R
+                self.A = A
+            # If A performed better than A_star, update A_star
             if self.obs_performances[str(self.A)] > self.obs_performances[str(self.A_star)]:
                 self.A_star = self.A
 
-        # Assign the time budget for the chosen algorithm
-        delta_t = self.budgets[self.A][0] * 0.5
+            # Get the new value of A
+            
 
-        action = (self.A_star, self.A, delta_t)
+
+        # Assign the time budget for the chosen algorithm
+        if not self.zero_flag:
+            self.A = self.learned_rankings[self.counter]
+            delta_t = self.budgets[self.A][0]
+            self.zero_flag = True
+            action = (self.A_star, self.A, delta_t)
+            self.counter += 1
+
+        else:
+            x = self.learned_rankings[self.counter]
+            action = (self.A_star, x, 0.0)
+            self.zero_flag = False
+       
+        
+
+        if self.counter == self.suggest_topk:
+            self.counter = 0
+
         return action
 
     def plot_encoder_training(self, losses, ):
@@ -1905,6 +1732,7 @@ class Agent:
         plt.legend()
 
         plt.savefig(
+            f'{self.root_dir}/output/{self.encoder}_training_loss.png',
         )
 
     def plot_current_embedding(self, normalize=False):
@@ -1948,6 +1776,7 @@ class Agent:
         plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
         plt.legend()
         plt.savefig(
+            f'{self.root_dir}/output/{self.encoder}_training_embeddings.png',
         )
 
     def _plot_embedding_projection(self, d_test, z_algo, projection='umap'):
@@ -1974,6 +1803,7 @@ class Agent:
             plt.scatter(test_embedding[:, 0], test_embedding[:, 1], s=5, cmap='Spectral')
 
             plt.savefig(
+                f'{self.root_dir}/output/{self.encoder}_embedding_umap.png',
             )
 
         elif projection == 'pca':
@@ -1988,38 +1818,7 @@ class Agent:
             plt.title('Embedding of the training set by densMAP')
 
             plt.savefig(
+                f'{self.root_dir}/output/{self.encoder}_embedding_pca.png',
             )
 
-    def measure_embedding_diversity(self):
-        """
-        Calculate the diversity based on euclidiean minimal spanning tree
-        :return:  diversity for datasets, diversity for algos
-        """
 
-        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
-        d_test = self.model.encode(D_test)
-        z_algo = self.model.Z_algo
-
-        d_test_tree = self._calc_min_eucl_spanning_tree(d_test)
-        z_algo_tree = self._calc_min_eucl_spanning_tree(z_algo)
-
-        d_diversity = sum([tup[2]['weight'] for tup in d_test_tree])
-        z_diversity = sum([tup[2]['weight'] for tup in z_algo_tree])
-
-        # sum of weighted edges
-        return d_diversity, z_diversity
-
-    def _calc_min_eucl_spanning_tree(self, d_test: torch.tensor):
-        dist_mat = torch.cdist(d_test, d_test)
-        dist_mat = dist_mat.cpu().detach().numpy()
-
-        nodes = list(range(len(dist_mat)))
-        d = [(src, dst, dist_mat[src, dst]) for src in nodes for dst in nodes if src != dst]
-
-        df = pd.DataFrame(data=d, columns=['src', 'dst', 'eucl'])
-
-        g = Graph()
-        for index, row in df.iterrows():
-            g.add_edge(row['src'], row['dst'], weight=row['eucl'])
-
-        return list(minimum_spanning_edges(g))  # fixme: VAE produces NAN sometimes

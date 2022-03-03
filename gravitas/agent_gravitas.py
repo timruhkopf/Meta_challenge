@@ -300,20 +300,6 @@ class Agent:
             tracking, losses, test_losses = self.model.train_schedule(
                 self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
-        raise ValueError()
-        # TODO: checkpointing the model
-        # run_id = hash()
-        # TODO: append hashtable
-        # self.output_dir = f'{self.root_dir}/output/{self.encoder}{run_id}'
-        # check_or_create_dir(self.output_dir)
-        #
-        # torch.save(self.model, f'{self.output_dir}')
-
-        # self.plot_encoder_training(losses)
-        # self.plot_current_embedding()
-
-        # TODO: Add Bandit exploration
-        print()
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """

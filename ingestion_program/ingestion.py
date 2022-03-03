@@ -228,7 +228,7 @@ if __name__ == "__main__":
     clear_output_dir(output_dir)
 
     # === Init K-folds cross-validation
-    folds = 6 if args.mode == 'submission' else 2
+    folds = 6
     kf = KFold(n_splits=folds, shuffle=False)
 
     ################## MAIN LOOP ##################
