@@ -11,7 +11,6 @@ from gravitas.dataset_gravitas import Dataset_Gravity
 from gravitas.utils import check_diversity  #
 from gravitas.vae import VAE
 
-import pdb
 
 class Agent:
     encoder_class = {'AE': AE, 'VAE': VAE}
@@ -217,11 +216,12 @@ class Agent:
         self.model = SUR(epsilon=0.001, X_dim=27, y_dim=20)
         self.model.fit(X, Y, lr=0.005)  # currently learning rate is not working
 
-        from sklearn.metrics import ndcg_score, label_ranking_average_precision_score
+        from sklearn.metrics import ndcg_score
         import numpy as np
         observed_rankings = {k: [int(tup[0]) for tup in
                                  self.valid_dataset.dataset_learning_properties[str(k)].ranking]
                              for k in self.valid_dataset.ids_datasets}
+
 
         x = torch.tensor(np.kron(np.eye(self.model.n_algos), X),
                          dtype=torch.float32)
@@ -237,15 +237,20 @@ class Agent:
 
         # (1660, 20)
         temp = np.asarray(self.model.predict(x).detach(), dtype=np.float32)
-        M = temp.T 
+        M = temp.T
 
-        relevant = np.array([M[i, first_axis*i:first_axis*(i+1)] for i in range(20)]).reshape(first_axis,-1)        
-        
+        relevant = np.array([M[i, first_axis * i:first_axis * (i + 1)] for i in range(20)]).reshape(
+            first_axis, -1)
+
+        mat = [list(sorted([(i, score) for i, score in enumerate(row)], key=lambda x: -x[1]))
+               for row in relevant]
+        true_ranks = [[tup[0] for tup in row] for row in mat]
+
         score = ndcg_score(
-            obs_mat.reshape(first_axis,-1),
+            obs_mat.reshape(first_axis, -1),
             relevant,
-            k=10, 
-            sample_weight=None, 
+            k=10,
+            sample_weight=None,
             ignore_ties=False
         )
 

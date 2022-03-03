@@ -78,7 +78,9 @@ class SUR(nn.Module):
 
     def update_cov(self, X, Y):
         resid = self.residuals(X, Y)
-        self.W = resid @ resid.t() / self.n
+        cov = resid.t() @ resid / self.n
+        self.W = torch.tensor(np.kron(cov.detach().numpy(), np.eye(self.n)), dtype=torch.float32)
+        print(sum(torch.diag(resid @ resid.t())))
 
     def predict(self, X):
         return X @ self.coef
