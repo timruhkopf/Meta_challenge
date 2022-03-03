@@ -296,11 +296,13 @@ def tae(config, budget):
     budget = int(budget)
 
     # parse the config
-    weights = [config['lossweight' + str(w)] for w in range(1, 5)]
+    weights = [2.98744, 4.52075, 8.11511, 2.53756]
+    # weights = [config['lossweight' + str(w)] for w in range(1, 5)] TODO activate this when lossweight are in
+    #  configspace
     config = {**config}
     config['weights'] = weights
-    for w in range(1, 5):
-        config.pop('lossweight' + str(w))
+    # for w in range(1, 5): #  TODO activate this when lossweight are in configspace
+    #     config.pop('lossweight' + str(w))
 
     config['lr'] = config.pop('learning_rate_init')
     # config['deselect'] = 0  # TODO 0 is excluding the deselection behaviour
@@ -315,7 +317,9 @@ def tae(config, budget):
         {k: env.validation_learning_curves[k] for k in list_datasets}, \
         env.algorithms_meta_features
     total_dataset.preprocess(*total_data)
-    total_dataset._reduce_algo_space(removals=0, k=10, mode='skew')  # fixme: move config up
+    total_dataset._reduce_algo_space(removals=config['remove'], k=10,
+                                     mode='skew')  # fixme: move config up
+    config.pop('remove')
 
     remaining_algos = set(env.algorithms_meta_features.keys()) - total_dataset.deselected
     print(remaining_algos)
@@ -340,15 +344,6 @@ def tae(config, budget):
             print(f'Encountered error during diversity measure:\n{e}\n when using config: {config}')
             diversity = None
 
-        # precompute ground trugh labels:
-        # get ground truth label
-        meta_test_dataset = [list_datasets[d] for d in D_te]
-        meta_features = {k: env.meta_features[k] for k in meta_test_dataset}
-        learning_curves = {k: env.test_learning_curves[k] for k in meta_test_dataset}
-        meta_test_dataset = Dataset_Gravity()
-        meta_test_dataset.preprocess(meta_features, learning_curves, env.algorithms_meta_features)
-
-        ground_truth_rankings = np.argsort(meta_test_dataset.algo_final_performances, axis=1)
 
         # META-TESTING-------------
         meta_testing(trained_agent, D_te, env)  # <<<--- intercepting the results on the heldout fold
@@ -362,6 +357,17 @@ def tae(config, budget):
             alc_scores.append(scores_df.loc[1, 1])
 
         elif args.eval_method == 'ndcg@K':
+            # precompute ground trugh labels:
+            # get ground truth label
+            meta_test_dataset = [list_datasets[d] for d in D_te]
+            meta_features = {k: env.meta_features[k] for k in meta_test_dataset}
+            learning_curves = {k: env.test_learning_curves[k] for k in meta_test_dataset}
+            meta_test_dataset = Dataset_Gravity()
+            meta_test_dataset.preprocess(meta_features, learning_curves,
+                                         env.algorithms_meta_features)
+
+            ground_truth_rankings = np.argsort(meta_test_dataset.algo_final_performances, axis=1)
+
             holdout_rankings = []
             holdout_rankings_truth = []
             holdout_embedding_distances = []  # distances of algorithms to the dataset. (base for ranking vector)
@@ -370,7 +376,8 @@ def tae(config, budget):
                 meta_features = env.meta_features[dataset_name]
 
                 # === Reset both the environment and the trained_agent for a new task
-                dataset_meta_features, algorithms_meta_features = env.reset(dataset_name=dataset_name)
+                dataset_meta_features, algorithms_meta_features = env.reset(
+                    dataset_name=dataset_name)
                 # agent.reset will already trigger a prediction on the new dataset
                 trained_agent.reset(dataset_meta_features, algorithms_meta_features)
                 holdout_rankings.append(trained_agent.learned_rankings)
@@ -426,12 +433,13 @@ if __name__ == '__main__':
          # CategoricalHyperparameter('deselection_metric', choices=[''] ),
          UniformIntegerHyperparameter('embedding_dim', 2, 5, default_value=3),
          UniformFloatHyperparameter('repellent_share', .2, .8, default_value=0.33),
-         UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.),
-         UniformFloatHyperparameter('lossweight2', 0., 10., default_value=1.),
-         UniformFloatHyperparameter('lossweight3', 0., 10., default_value=1.),
-         UniformFloatHyperparameter('lossweight4', 0., 10., default_value=1.),
+         # UniformFloatHyperparameter('lossweight1', 0., 10., default_value=1.,),
+         # UniformFloatHyperparameter('lossweight2', 0., 10., default_value=1.),
+         # UniformFloatHyperparameter('lossweight3', 0., 10., default_value=1.),
+         # UniformFloatHyperparameter('lossweight4', 0., 10., default_value=1.),
          UniformFloatHyperparameter(
-             'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True)])
+             'learning_rate_init', 0.0001, 1.0, default_value=0.001, log=True),
+         UniformIntegerHyperparameter('remove', 0, 10, default_value=3)])
 
     # (1) setup TAE
 

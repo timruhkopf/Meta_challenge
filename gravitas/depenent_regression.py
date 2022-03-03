@@ -22,7 +22,7 @@ class SUR(nn.Module):
         self.loss = lambda X: sum(X ** 2)
         self.coef = nn.Parameter(torch.Tensor(X_dim * y_dim, X_dim * y_dim))
 
-    def fit(self, x, y, lr, budget=10000):
+    def fit(self, x, y, lr=0.001, budget=10000):
         self.n, self.n_algos = y.shape  # n being a single regressions' no. of obs.
         # X = torch.kron(torch.eye(Y.shape[1]), X)
 
@@ -41,12 +41,17 @@ class SUR(nn.Module):
         # fixme: can we actually make it sgd like? despite iterative updating
         #  so that we actually only partially update gls_bets?
         # fixme: while loop for convergence with maximal budget (finally: note)
+        diffs = []
         while not self.converged and epoch < budget:
             # for i in tqdm(range(budget)):
             # todo update coef_lagged
             self.coef_lagged = self.coef.clone()
             self.update_cov(X, Y)
-            self.coef.data = self.gls_beta(X, Y)
+            diff_vec = self.gls_beta(X, Y) - self.coef
+
+            diffs.append(torch.norm(diff_vec))
+
+            self.coef.data += lr * (diff_vec)
 
             epoch += 1
             print(epoch)
@@ -56,6 +61,10 @@ class SUR(nn.Module):
                 print('convergence was not reached, but budget depleted')
 
         print()
+        # fixme: remove plot
+        # import matplotlib.pyplot as plt
+        # plt.plot(torch.tensor(diffs).numpy())
+        # plt.show()
 
     @property
     def converged(self):

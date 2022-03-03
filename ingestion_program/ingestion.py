@@ -25,7 +25,8 @@ verbose = False
 random.seed(208)
 
 # === Setup input/output directories
-root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
+# root_dir = '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
+root_dir = '/home/ruhkopf/PycharmProjects/Meta_challenge/'
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
@@ -151,13 +152,14 @@ def meta_testing(trained_agent, D_te):
         # === Start meta-testing on a dataset step by step until the given total_time_budget is exhausted (done=True)
         done = False
         observation = None
+        counter = 0
         while not done:
             # === Get the agent's suggestion
             action = trained_agent.suggest(observation)
 
             # === Execute the action and observe
             observation, done = env.reveal(action)
-
+            counter += 1
             vprint(verbose, "------------------")
             vprint(verbose, "A_star = " + str(action[0]))
             vprint(verbose, "A = " + str(action[1]))
@@ -219,21 +221,22 @@ if __name__ == "__main__":
     # from gravitas.agent_gravitas import Agent
 
     # choosing the agent to run
-    from submission.submission_docs.agent_adi import Agent as Agent_submission
+    from submission.submission_docs.agent import Agent as Agent_submission
     from gravitas.agent_gravitas import Agent as Agent_gravitas
 
     agents = {'submission': Agent_submission, 'testing': Agent_gravitas}
 
     # === Clear old output
-    clear_output_dir(output_dir)
+    # clear_output_dir(output_dir)
 
     # === Init K-folds cross-validation
-    folds = 6 if args.mode == 'submission' else 2
+    folds = 6  # if args.mode == 'submission' else 2
     kf = KFold(n_splits=folds, shuffle=False)
 
     ################## MAIN LOOP ##################
     # === Init a meta-learning environment
-    env = Meta_Learning_Environment(validation_data_dir, test_data_dir, meta_features_dir, algorithms_meta_features_dir,
+    env = Meta_Learning_Environment(validation_data_dir, test_data_dir, meta_features_dir,
+                                    algorithms_meta_features_dir,
                                     output_dir)
 
     # === Start iterating, each iteration involves a meta-training step and a meta-testing step
@@ -241,19 +244,19 @@ if __name__ == "__main__":
     from tqdm import tqdm
 
     # DECIDE ON DESELECTION of ALGORITHMS --------------------------------------
-    from gravitas.dataset_gravitas import Dataset_Gravity
+    # from gravitas.dataset_gravitas import Dataset_Gravity
 
-    total_dataset = Dataset_Gravity(no_competitors=11)  # fixme move to args
-    # dataset_meta_features, learning_curves, algorithm_meta_features
-    total_data = \
-        {k: env.meta_features[k] for k in list_datasets}, \
-        {k: env.validation_learning_curves[k] for k in list_datasets}, \
-        env.algorithms_meta_features
-    total_dataset.preprocess(*total_data)
-    total_dataset._reduce_algo_space(removals=5, k=10, mode='skew')  # fixme: move config up
-
-    remaining_algos = set(env.algorithms_meta_features.keys()) - total_dataset.deselected
-    print(remaining_algos)
+    # total_dataset = Dataset_Gravity(no_competitors=11)  # fixme move to args
+    # # dataset_meta_features, learning_curves, algorithm_meta_features
+    # total_data = \
+    #     {k: env.meta_features[k] for k in list_datasets}, \
+    #     {k: env.test_learning_curves[k] for k in list_datasets}, \
+    #     env.algorithms_meta_features
+    # total_dataset.preprocess(*total_data)
+    # total_dataset._reduce_algo_space(removals=5, k=10, mode='skew')  # fixme: move config up
+    #
+    # remaining_algos = set(env.algorithms_meta_features.keys()) - total_dataset.deselected
+    # print(remaining_algos)
 
     for D_tr, D_te in tqdm(kf.split(list_datasets)):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")

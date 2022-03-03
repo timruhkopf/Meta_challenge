@@ -213,14 +213,42 @@ class Agent:
         X = self.valid_dataset.datasets_meta_features
 
         print('Training SUR model for ranking.')
-        self.model = SUR(epsilon=0.01, X_dim=27, y_dim=20)
+        self.model = SUR(epsilon=0.001, X_dim=27, y_dim=20)
         self.model.fit(X, Y, lr=0.005)  # currently learning rate is not working
 
+        from sklearn.metrics import ndcg_score, label_ranking_average_precision_score
+        import numpy as np
+        observed_rankings = {k: [int(tup[0]) for tup in
+                                 self.valid_dataset.dataset_learning_properties[str(k)].ranking]
+                             for k in self.valid_dataset.ids_datasets}
+
+        x = torch.tensor(np.kron(np.eye(self.model.n_algos), X),
+                         dtype=torch.float32)
+        ndcg_score(np.asarray().reshape(1, -1),
+                   np.asarray(self.model.predict(x), dtype=np.int64).reshape(1, -1),
+                   k=10, sample_weight=None, ignore_ties=False)
+        for k, x in zip(self.valid_dataset.ids_datasets, X):
+            # print()
+
+            ndcg_score(np.asarray(observed_rankings[k]).reshape(1, -1),
+                       np.asarray(self.model.predict(x), dtype=np.int64).reshape(1, -1),
+                       k=10, sample_weight=None, ignore_ties=False)
+            x = torch.tensor(np.kron(np.eye(self.model.n_algos), x),
+                             dtype=torch.float32)
+            y = self.model.rank(x)
+            label_ranking_average_precision_score(np.asarray(observed_rankings[k]),  # .reshape(1,
+                                                  # -1),
+                                                  np.asarray(y.detach().numpy(), dtype=np.float32),
+                                                  # .reshape(1, -1),
+                                                  )
+
         print('\ntimestamp distribution')
-        print(pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
+        print(
+            pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
 
         print('\nsingle timestamp scores')
-        print(pd.Series(lc.scores for k, lc in self.valid_dataset.lc.items() if len(lc.timestamps) == 1))
+        print(pd.Series(
+            lc.scores for k, lc in self.valid_dataset.lc.items() if len(lc.timestamps) == 1))
 
         self.nA = self.valid_dataset.nA
 
@@ -491,7 +519,8 @@ class Agent:
             if normalize:
                 d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
                 # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
-                z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0)  # normalization based on datasets
+                z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(
+                    axis=0)  # normalization based on datasets
 
             self._plot_embedding2d(d_test, z_algo)
             return None
@@ -528,7 +557,8 @@ class Agent:
 
             # plot the current embedding
             # TODO add colouring c?
-            plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5, cmap='Spectral')  # c=y_train,
+            plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5,
+                        cmap='Spectral')  # c=y_train,
             plt.title('Embedding of the training set by densMAP')
 
             # embedd the z_algos accordingly:
