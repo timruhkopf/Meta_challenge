@@ -113,9 +113,12 @@ def meta_training(agent, D_tr):
     # === Start meta-traning the agent
     vprint(verbose, datasets_meta_features)
     vprint(verbose, algorithms_meta_features)
-    agent.meta_train(datasets_meta_features, algorithms_meta_features, validation_learning_curves,
-                     test_learning_curves,
-                     epochs=args.epochs, pretrain_epochs=args.pretrain_epochs)
+    agent.meta_train(
+                datasets_meta_features, 
+                algorithms_meta_features, 
+                validation_learning_curves,
+                test_learning_curves,
+    )
 
     vprint(verbose, "[+]Finished META-TRAINING phase")
 
@@ -230,7 +233,7 @@ if __name__ == "__main__":
     # clear_output_dir(output_dir)
 
     # === Init K-folds cross-validation
-    folds = 6  # if args.mode == 'submission' else 2
+    folds = 2  # if args.mode == 'submission' else 2
     kf = KFold(n_splits=folds, shuffle=False)
 
     ################## MAIN LOOP ##################
@@ -242,21 +245,6 @@ if __name__ == "__main__":
     # === Start iterating, each iteration involves a meta-training step and a meta-testing step
     iteration = 0
     from tqdm import tqdm
-
-    # DECIDE ON DESELECTION of ALGORITHMS --------------------------------------
-    # from gravitas.dataset_gravitas import Dataset_Gravity
-
-    # total_dataset = Dataset_Gravity(no_competitors=11)  # fixme move to args
-    # # dataset_meta_features, learning_curves, algorithm_meta_features
-    # total_data = \
-    #     {k: env.meta_features[k] for k in list_datasets}, \
-    #     {k: env.test_learning_curves[k] for k in list_datasets}, \
-    #     env.algorithms_meta_features
-    # total_dataset.preprocess(*total_data)
-    # total_dataset._reduce_algo_space(removals=5, k=10, mode='skew')  # fixme: move config up
-    #
-    # remaining_algos = set(env.algorithms_meta_features.keys()) - total_dataset.deselected
-    # print(remaining_algos)
 
     for D_tr, D_te in tqdm(kf.split(list_datasets)):
         vprint(verbose, "\n********** ITERATION " + str(iteration) + " **********")

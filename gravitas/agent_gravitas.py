@@ -127,20 +127,9 @@ class Agent:
         self.times = {k: 0. for k in algorithms_meta_features.keys()}
         self.obs_performances = {k: 0. for k in algorithms_meta_features.keys()}
 
-        # NOTE: Is this required in the RL setting?
-        # set delta_t's (i.e. budgets for each algo we'd like to inquire)
-        # self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
         self.budgets = self.predict_initial_speed(dataset_meta_features_df_testing)
 
         print('Test_data: predicting ranking based on SUR')
-
-        # x = torch.tensor(np.kron(
-        #                     np.eye(self.model.n_algos), 
-        #                     dataset_meta_feature_tensor_testing
-        #                 ),
-        #                 dtype=torch.float32
-        #         ) 
-
 
         self.learned_rankings = self.model.rank(dataset_meta_feature_tensor_testing)
 
@@ -279,7 +268,7 @@ class Agent:
 
         # meta_learn convergence speed
         print('Training 90% convergence speed.')
-        self.meta_train_convergence_speed(confidence=0.9)
+        self.meta_train_convergence_speed(confidence=0.2)
 
         print('Training initial budget based on timestamps.')
         self.meta_train_initial_budgets(confidence=0.8, stamp=1)
@@ -409,22 +398,18 @@ class Agent:
 
             # Get the new value of A
             
-
-
         # Assign the time budget for the chosen algorithm
         
         if not self.zero_flag:
-            delta_t = self.budgets[self.A][0]*0.5
             self.zero_flag = True
             self.A = self.learned_rankings[self.counter]
+            delta_t = self.budgets[self.A][0]*0.5
             action = (self.A_star, self.A, delta_t)
-
+            self.counter += 1
         else:
             x = self.learned_rankings[self.counter]
             action = (self.A_star, x, 0.0)
-            self.zero_flag = False
-       
-        self.counter += 1
+            self.zero_flag = False        
 
         if self.counter == self.suggest_topk:
             self.counter = 0

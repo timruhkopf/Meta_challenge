@@ -1,549 +1,23 @@
-import os
-import warnings
+import matplotlib.pyplot as plt
+import pandas as pd
+import torch
+from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
+from torch.utils.data import DataLoader
+import numpy as np
 
-
-def freeze(listoflayers, unfreeze=True):
-    """freeze the parameters of the list of layers """
-    for l in listoflayers:
-        for p in l.parameters():
-            p.requires_grad = unfreeze
-
-
-def check_diversity(representation, title, epsilon=0.01):
-    """
-
-    :param representation: ndarray.
-    :param title: name of the matrix
-    :param epsilon: float: the value needed to exceed (should be close to zero)
-    :raises: Warning if representation is not diverse
-    """
-    # Check for (naive) representation collapse by checking sparsity after
-    # translation by 90% quantile
-    translated = representation - np.quantile(representation, 0.9, axis=0)
-    sparsity = (translated < epsilon).sum() / np.product(representation.shape)
-    if sparsity >= 0.95:
-        warnings.warn(f'The {title} representation is not diverse.')
-
-        # Warning(f'The {title} representation is not diverse.')
-        print(representation)
-
-
-def check_or_create_dir(dir):
-    # If folder doesn't exist, then create it.
-    if not os.path.isdir(dir):
-        os.makedirs(dir)
-        print("created folder : ", dir)
-
-    else:
-        print(dir, "folder already exists.")
-
+from sklearn.metrics import label_ranking_average_precision_score  as LRAP
 
 import torch
 import torch.nn as nn
-
-from abc import abstractmethod
-
-
-class BaseEncoder(nn.Module):
-    """
-    Base class for encoders thtat are used to get latent representations
-    of the data and the algorithms.    
-    """
-
-    def __init__(self) -> None:
-        super(BaseEncoder, self).__init__()
-
-    def _build_network(self) -> None:
-        """
-        Bulid the network.
-        """
-        raise NotImplementedError
-
-    def encode(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Encodes the context.
-        """
-        raise NotImplementedError
-
-    def decode(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Decodes the context.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def forward(self, D) -> torch.Tensor:
-        """
-        Forward path through the network to get the encoding
-        """
-        pass
-
-    @abstractmethod
-    def loss_gravity(self) -> torch.Tensor:
-        """
-        Loss function for gravity based training.
-        """
-        pass
-
-    @abstractmethod
-    def predict_algorithms(self) -> torch.Tensor:
-        """
-        Predict the algorithms
-        """
-        pass
-
-
-from typing import List
-
-import torch.distributions as td
-from tqdm import tqdm
-
-
-class AE(BaseEncoder):
-    # TODO allow for algo meta features
-    def __init__(
-            self,
-            input_dim: int = 10,
-            hidden_dims: List[int] = [8, 4],
-            embedding_dim: int = 2,
-            weights=[1.0, 1.0, 1.0, 1.0],
-            repellent_share=0.33,
-            n_algos=20,
-            device=None,
-    ):
-        """
-
-        :param nodes: list of number of nodes from input to output
-        :param weights: list of floats indicating the weights in the loss:
-        reconstruction, algorithm pull towards datasets, data-similarity-attraction,
-        data-dissimilarity-repelling.
-        :param n_algos: number of algorithms to place in the embedding space
-        """
-        super().__init__()
-        self.device = device
-        weights = [weights[0], *weights[2:], weights[1]]  # fixme: change the doc instead!
-        self.weights = torch.tensor(weights).to(device)
-        self.repellent_share = repellent_share
-
-        # construct the autoencoder
-        self.latent_dim = embedding_dim
-        self.input_dim = input_dim
-        self.hidden_dims = hidden_dims
-
-        self.cossim = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
-
-        # initialize the algorithms in embedding space
-        self.n_algos = n_algos
-        self.embedding_dim = self.latent_dim
-        self.Z_algo = nn.Parameter(
-            td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
-        )
-
-        self._build_network()
-        self.to(self.device)
-
-    def _build_network(self) -> None:
-        """
-        Builds the encoder and decoder networks
-        """
-        # Make the Encoder
-        modules = []
-
-        hidden_dims = self.hidden_dims
-        input_dim = self.input_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        modules.append(nn.Linear(input_dim, self.latent_dim))
-        modules.append(nn.BatchNorm1d(self.latent_dim))
-        modules.append(nn.Dropout(p=0.5))
-        modules.append(nn.ReLU())
-
-        self.encoder = torch.nn.Sequential(*modules)
-
-        # Make the decoder
-        modules = []
-
-        # fixme: this is an inplace change on self.hidden_dims!
-        hidden_dims.reverse()
-        input_dim = self.latent_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())  # input_dim, self.input_dim
-
-        self.decoder = nn.Sequential(*modules)
-
-    def encode(self, x):
-        return self.encoder(x)
-
-    def decode(self, x):
-        return self.decoder(x)
-
-    def forward(self, D):
-        """
-        Forward path through the meta-feature autoencoder
-        :param D: input tensor
-        :return: tuple: output tensor
-        """
-        return self.decode(self.encode(D))
-
-    def _loss_reconstruction(self, D0, D0_fwd, *args, **kwargs):
-        # reconstruction loss (Autoencoder loss)
-        # its purpose is to avoid simple single point solution with catastrophic
-        # information loss - in the absence of a repelling force.
-        return torch.nn.functional.mse_loss(D0, D0_fwd)
-
-    def _loss_datasets(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
-
-        reconstruction = self._loss_reconstruction(D0, D0_fwd)
-        # batch similarity order + no_repellents
-        no_comparisons = A1.shape[1]
-        similarity_order_ind = torch.stack([torch.argsort(self.cossim(a0, a1)) for a0, a1 in zip(A0, A1)])
-        no_repellent = int(no_comparisons * self.repellent_share)
-
-        # find the repellent forces
-        repellents = similarity_order_ind[:, :no_repellent]
-        Z1_repellents = torch.stack([z1[r] for z1, r in zip(Z1_data, repellents)])
-        A1_repellents = torch.stack([a1[r] for a1, r in zip(A1, repellents)])
-        mutual_weighted_dist = [(1 - self.cossim(a0, a1)) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_repellents, A0, A1_repellents)]
-        data_repellent = (len(Z1_data) * len(Z1_repellents[0])) ** -1 * sum(mutual_weighted_dist)
-
-        # find the attracting forces
-        attractors = similarity_order_ind[:, no_repellent:]
-        Z1_attractors = torch.stack([z1[att] for z1, att in zip(Z1_data, attractors)])
-        A1_attractors = torch.stack([a1[att] for a1, att in zip(A1, attractors)])
-        mutual_weighted_dist = [self.cossim(a0, a1) @ torch.linalg.norm((z0 - z1), dim=1)
-                                for z0, z1, a0, a1 in zip(Z0_data, Z1_attractors, A0, A1_attractors)]
-        data_attractor = (len(Z1_data) * len(Z1_attractors[0])) ** -1 * sum(mutual_weighted_dist)
-
-        return torch.stack([data_attractor, (-1) * data_repellent, reconstruction]) @ self.weights[:3]
-
-    def _loss_algorithms(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
-        # Algorithm performance "gravity" towards dataset (D0: calcualted batchwise)
-        # TODO check that direction (sign) is correct!
-        # compute the distance between algos and D0 (batch) dataset in embedding space
-        # and weigh the distances by the algorithm's performances
-        # --> pull is normalized by batch size & number of algorithms
-        # Fixme: make list comprehension more pytorch style by apropriate broadcasting
-        # TODO use torch.cdist for distance matrix calculation!
-        dataset_algo_distance = [a @ torch.linalg.norm((z - Z_algo), dim=1) for z, a in zip(Z0_data, A0)]
-        return (len(Z_algo) * len(Z0_data)) ** -1 * sum(dataset_algo_distance)
-
-    def loss_gravity(self, D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo):
-        """
-        Creates a pairwise (dataset-wise) loss that
-        a) enforces a reconstruction of the datasets meta features (i.e. we
-        have a meaningful embedding)
-        b) ensure, that algorithms that perform good on datasets are drawn towards
-        those datasets in embedding space.
-        c) pull together datasets, if similar algorithms performed well on them.
-
-        # Consider: use of squared/linear/learned exponential (based on full
-        # prediction: top_k selection) algo performance for weighing?
-        # Consider: that the 90% performance should also be part of the loss
-        # this might allow to get a ranking immediately from the distances in
-        # embedding space!
-
-        :param D0: Dataset 0 meta features
-        :param D0_fwd: autoencoder reconstruction of Dataset 0 meta features
-        :param Z0_data: embedding of dataset 0 meta features
-        :param Z1_data: embedding of dataset 1 meta features
-        :param A0: vector of algorithm performances on dataset 0
-        :param A1: vector of algorithm performances on dataset 1
-        :param Z_algo: algorithm embedding vector of same dim as Z_data
-
-
-        :return: scalar.
-        """
-
-        algo_pull = self._loss_algorithms(D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
-
-        gravity = self._loss_datasets(
-            D0, D0_fwd, Z0_data, Z1_data, A0, A1, Z_algo)
-
-        return torch.stack([gravity, self.weights[-1] * algo_pull, ])
-
-    def train_gravity(self, train_dataloader, test_dataloader, epochs, lr=0.001):
-        """
-        Two step training:
-        1) Pretraining using reconstruction loss
-        2) Training using gravity loss (reconstruction + attraction + repellent +
-        :param train_dataloader:
-        :param test_dataloader:
-        :param epochs: list of int (len 2): epochs for step 1) and 2) respectively
-        :param lr:
-        :return:
-        """
-        name = self.__class__.__name__
-        print(f'\nPretraining {name} with reconstruction loss: ')
-        self._train(epochs[0], self._loss_reconstruction, train_dataloader, test_dataloader)
-
-        print(f'\nTraining {name} with gravity loss:')
-        return self._train(epochs[1], self.loss_gravity, train_dataloader, test_dataloader, lr=lr)
-
-    def train_schedule(self, train_dataloader, test_dataloader, epochs=[100, 100, 100], lr=0.001):
-        # Consider Marius idea to first find a reasonable data representation
-        #  and only than train with the algorithms
-
-        # pretrain
-        name = self.__class__.__name__
-        print(f'\nPretraining {name} with reconstruction loss:')
-        self._train(epochs[0], self._loss_reconstruction, train_dataloader, test_dataloader, lr)
-
-        # train datasets
-        print(f'\nTraining {name} with dataset loss:')
-        # self._train(self._loss_datasets, train_dataloader, test_dataloader, epochs=epochs[1], lr=lr)
-        self.freeze_train(epochs[1], self._loss_datasets, train_dataloader, test_dataloader, lr)
-
-        # train algorithms
-        print(f'\nTraining {name} with algorithm:')
-        return self._train(epochs[2], self._loss_algorithms, train_dataloader, test_dataloader, lr)
-
-    def freeze_train(self, epochs, *args):
-        """
-        unfreeze from the outer to the inner of the autoencoder
-        :param epochs: total epochs that are to be trained
-        :param args: args passed to _train()
-        """
-        # find those layers that need to be frozen
-        enc = [l for l in self.encoder if isinstance(l, nn.Linear)]
-        dec = [l for l in reversed(self.decoder) if isinstance(l, nn.Linear)]
-
-        enc_bn = [l for l in self.encoder if isinstance(l, nn.BatchNorm1d)]
-        dec_bn = [l for l in reversed(self.encoder) if isinstance(l, nn.BatchNorm1d)]
-
-        # linear intervals for unfreezing
-        no_freeze_steps = len(enc)
-
-        # freeze all intermediate layers
-        freeze([*enc, *dec, *enc_bn, *dec_bn], unfreeze=False)
-
-        # scheduler for the layers that are iteratively unfrozen
-        unfreezer = zip(enc, dec, enc_bn, dec_bn)
-
-        for i in range(no_freeze_steps):
-            # determine which layers are melted
-            en, de, ebn, dbn = unfreezer.__next__()
-            freeze([en, de, ebn, dbn], unfreeze=True)
-            self._train(epochs // no_freeze_steps, *args)
-
-    def _train(self, epochs, loss_fn, train_dataloader, test_dataloader, lr=0.001):
-        losses = []
-        test_losses = []
-
-        tracking = []
-        # check that only require_grad tensors are optimized (used for freezing)
-        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr)
-        for e in tqdm(range(epochs)):
-            for i, data in enumerate(train_dataloader):
-                D0, D1, A0, A1 = data
-
-                D0 = D0.to(self.device)
-                D1 = D1.to(self.device)
-                A0 = A0.to(self.device)
-                A1 = A1.to(self.device)
-                optimizer.zero_grad()
-
-                # calculate embedding
-                D0_fwd = self.forward(D0)
-
-                # todo not recalculate the encoding
-                Z0_data = self.encode(D0)
-                Z1_data = torch.stack([self.encode(d) for d in D1])
-
-                # look if there is representation collapse:
-
-                # calculate "attracting" forces.
-                loss = loss_fn(D0, D0_fwd, Z0_data, Z1_data, A0, A1, self.Z_algo)
-
-                # gradient step
-                loss.backward()
-                optimizer.step()
-                # TODO check convergence: look if neither Z_algo nor Z_data move anymore! ( infrequently)
-
-            losses.append(loss)
-
-            # validation every e epochs
-            test_timer = 10
-            test_losses = []
-            # if e % test_timer == 0:
-            #     # look at the gradient step's effects on validation data
-            #     D_test = train_dataloader.dataset.datasets_meta_features
-            #     D_test = D_test.to(self.device)
-            #     Z_data = self.encode(D_test)
-            #
-            #     tracking.append((self.Z_algo.data.clone(), Z_data))
-
-            # TODO validation procedure
-
-        return tracking, losses, test_losses
-
-    def predict_algorithms(self, D, topk):
-        """
-        Find the topk performing algorithm candidates.
-
-        :param D: meta features of dataset D
-        :param topk: number of candidate algorithms to return.
-        :return: set of indicies representing likely good performing algorithms based on their
-        distance in embedding space.
-        """
-        # embed dataset.
-        self.eval()
-
-        with torch.no_grad():
-            Z_data = self.encode(D)
-
-            # find k-nearest algorithms.
-            # sort by distance in embedding space.
-            dist_mat = torch.cdist(Z_data, self.Z_algo)
-            _, top_algo = torch.topk(dist_mat, largest=False, k=topk)  # find minimum distance
-
-        self.train()
-
-        return top_algo
-
-
-import torch
-import torch.nn as nn
-
-
-class VAE(AE):
-    # TODO allow for algo meta features
-    # def __init__(
-    #     self,
-    #     input_dim: int = 10,
-    #     hidden_dims: List[int] = [8,4],
-    #     embedding_dim: int = 2,
-    #     weights: List[float]=[1.0, 1.0, 1.0, 1.0],
-    #     repellent_share: float =0.33,
-    #     n_algos: int =20,
-    #     device=None,
-    # ):
-    #     """
-    #
-    #     :param nodes: list of number of nodes from input to output
-    #     :param weights: list of floats indicating the weights in the loss:
-    #     reconstruction, algorithm pull towards datasets, data-similarity-attraction,
-    #     data-dissimilarity-repelling.
-    #     :param n_algos: number of algorithms to place in the embedding space
-    #     """
-    #     super().__init__()
-    #     self.device = device
-    #     self.weights = torch.tensor(weights).to(device)
-    #     self.repellent_share = repellent_share
-    #
-    #     # construct the autoencoder
-    #     self.embedding_dim = embedding_dim
-    #     self.input_dim = input_dim
-    #     self.hidden_dims = hidden_dims
-    #
-    #     self._build_network()
-    #
-    #     # initialize the algorithms in embedding space
-    #     self.n_algos = n_algos
-    #     self.embedding_dim = self.embedding_dim
-    #     self.Z_algo = nn.Parameter(
-    #         td.Uniform(-10, 10).sample([self.n_algos, self.embedding_dim])
-    #     )
-    #
-    #     self.to(self.device)
-
-    def _build_network(self) -> None:
-        """
-        Builds the encoder and decoder networks
-        """
-        # Make the Encoder
-        modules = []
-
-        hidden_dims = self.hidden_dims
-        input_dim = self.input_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        self.encoder = torch.nn.Sequential(*modules)
-
-        # Mean and std_dev for the latent distribution
-        self.fc_mu = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
-        self.fc_var = torch.nn.Linear(hidden_dims[-1], self.embedding_dim)
-
-        # modules.append(nn.Linear(input_dim, self.latent_dim))
-        # modules.append(nn.BatchNorm1d(self.latent_dim))
-        # modules.append(nn.Dropout(p=0.5))
-        # modules.append(nn.ReLU())
-
-        # Make the decoder
-        modules = []
-
-        hidden_dims.reverse()
-        input_dim = self.embedding_dim
-
-        for h_dim in hidden_dims:
-            modules.append(nn.Linear(input_dim, h_dim))
-            modules.append(nn.BatchNorm1d(h_dim))
-            modules.append(nn.Dropout(p=0.5))
-            modules.append(nn.ReLU())
-            input_dim = h_dim
-
-        modules.append(nn.Linear(input_dim, self.input_dim))
-        modules.append(nn.Sigmoid())
-
-        self.decoder = nn.Sequential(*modules)
-
-    def reparameterize(
-            self,
-            mu: torch.Tensor,
-            logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Reparameterization trick to sample from N(mu, var)
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-
-        return eps * std + mu
-
-    def encode(self, x):
-
-        # Forward pass the input through the network
-        result = self.encoder(x)
-
-        # Get the mean and standard deviation from the output 
-        mu = self.fc_mu(result)
-        log_var = self.fc_var(result)
-
-        # TODO: Plot latent distributions
-
-        # Sample a latent vector using the reparameterization trick
-        z = self.reparameterize(mu, log_var)
-
-        return z
-
-    def decode(self, x):
-        return self.decoder(x)
-
 
 import random
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.stats as ss
 import seaborn as sns
+import torch
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from torch.utils.data import Dataset
 
@@ -937,7 +411,7 @@ class Dataset_Gravity(Dataset):
         ]))
 
     n_features = 0
-    deselected = {'15', '8', '18', '1', '0'}
+    deselected = set()
     nA = None  # number of algorithms
 
     def __init__(self,
@@ -1118,7 +592,7 @@ class Dataset_Gravity(Dataset):
         # Consider: this is the new version of preprocessing
         Dataset_Gravity.nA = len(self.algo_final_performances.columns)
         self.preprocess_learning_curves(learning_curves)
-        self._calc_timestamp_distribution(2)
+        self._calc_timestamp_distribution(1)
 
         # needed for plotting
         self.raw_learning_curves = learning_curves
@@ -1345,30 +819,9 @@ class Dataset_Gravity(Dataset):
 
         """
 
-        # def calc_ecdf(data, n_bins=100):
-        #     count, bins_count = np.histogram(data, bins=n_bins)
-        #
-        #     # finding the PDF of the histogram using count values
-        #     pdf = count / sum(count)
-        #     cdf = np.cumsum(pdf)
-        #     return bins_count[1:], cdf
-        #
-        # def calc_pdf_integral0(data, n_bins):
-        #     """
-        #     Calculate the probability mass of x <= 0
-        #     :param data:
-        #     :param n_bins:
-        #     :return: probability of below x=0
-        #     """
-        #     x, cdf = calc_ecdf(data, n_bins)
-        #     return cdf[np.argmax(x >= 0)]
-
         df = self.algo_final_performances
         k_inv = len(df.columns) - k
-        # assert k_inv >= len(df.columns) // removals
-        # fixme there must be some assertation
-        #  to ensure that we always will have at least k competitors
-
+        
         # init for selection
         deselected = set()
         remaining = set(df.columns)
@@ -1405,27 +858,9 @@ class Dataset_Gravity(Dataset):
                 deselected_algo = skew.index[np.argmin(skew_baseline - skew)]
                 skew_baseline = skew[deselected_algo]
 
-            # elif mode == '0threshold':
-            #     # remove the algo that has least density mass on reducing the overall
-            #     # performance of datasets (compared to current baseline)
-            #     deselected_algo = pd.Series(
-            #         {k: calc_pdf_integral0(v, n_bins=100)
-            #          for k, v in performances.items()}).argmin()
-
             deselected.add(deselected_algo)
             remaining.remove(deselected_algo)
             performance_baseline = performances.pop(deselected_algo)
-
-            # # plotting the change in baseline performances across datasets:
-            # # this is the performance profile across remaining algos & datasets removing an algo.
-            # for algo in performances.keys():
-            #     # performances[algo].hist()
-            #
-            #     performances[algo].hist(density=True, histtype='step',
-            #                             cumulative=True, label=str(algo), bins=100, )
-            # plt.legend()
-            # plt.title(f'Leave this algo out decrease in top-{k} avg. performance on a dataset')
-            # plt.show()
 
         Dataset_Gravity.deselected = deselected
 
@@ -1465,26 +900,131 @@ class Dataset_Gravity(Dataset):
         plt.show()
 
 
-import matplotlib.pyplot as plt
-import pandas as pd
-import torch
-from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
-from torch.utils.data import DataLoader
+class SUR(nn.Module):
+    # TODO regularization on the coefficients?
+    def __init__(self, epsilon, X_dim, y_dim, lam=10):
+        """
 
+        :param epsilon:
+        :param X_dim:
+        :param y_dim:
+        :param lam: L2 regularization weight
+        """
+        super().__init__()
+        self.epsilon = epsilon
+        self.X_dim = X_dim
+        self.y_dim = y_dim
+        self.lam = lam
 
-# FIXME: remove this block for agent_submission
+        self.loss = lambda X: sum(X ** 2)
+        self.coef = nn.Parameter(torch.Tensor(X_dim * y_dim, X_dim * y_dim))
+
+    def fit(self, x, y, lr=0.01, budget=10_000):
+        """
+        Fit a regression model to the data
+
+        :param x: meta features
+        :param y: labels
+        :param lr: learning rate
+        :param budget: number of iterations for the fit
+
+        """
+        self.n, self.n_algos = y.shape  # n being a single regressions' no. of obs.
+
+        # Kroneckerize the inputs and format the output as a block diagonal matrix
+        X = torch.tensor(np.kron(np.eye(self.n_algos), x), dtype=torch.float32)
+        Y = torch.block_diag(*[y[:, i].view(-1, 1) for i in range(self.n_algos)])
+
+        # (1) initialize with the independent coefficients
+        self.cov = torch.eye(self.n)
+        np_W = np.kron(torch.linalg.inv(self.cov).detach().numpy(),
+                       np.eye(self.n_algos))
+        self.W = torch.tensor(np_W, dtype=torch.float32)
+        self.coef.data = self.gls_beta(X, Y)
+
+        self.coef_lagged = torch.ones_like(self.coef)
+        epoch = 0
+
+        diffs = []
+        while not self.converged and epoch < budget:
+            # for i in tqdm(range(budget)):
+            # todo update coef_lagged
+            self.coef_lagged = self.coef.clone()
+            self.update_cov(X, Y)
+            diff_vec = self.gls_beta(X, Y) - self.coef
+
+            diffs.append(torch.norm(diff_vec))
+
+            self.coef.data += lr * (diff_vec)
+
+            epoch += 1
+            #print(epoch)
+
+        else:
+            if epoch == budget:
+                print('convergence was not reached, but budget depleted')
+
+    @property
+    def converged(self):
+        return torch.allclose(self.coef_lagged, self.coef, rtol=self.epsilon)
+
+    def gls_beta(self, X, Y):
+        """
+        L2 regularized Generalized Linear Coefficent.
+        """
+    
+        K = self.lam * torch.eye(X.shape[1])
+        return torch.linalg.inv(X.t() @ self.W @ X + K) @ X.t() @ self.W @ Y
+
+    def update_cov(self, X, Y):
+        """
+        Update the cov ariance matrix
+        """
+        resid = self.residuals(X, Y)
+        cov = resid.t() @ resid / self.n
+        cov = torch.linalg.inv(cov)
+        self.W = torch.tensor(
+                            np.kron(
+                            cov.detach().numpy(), 
+                            np.eye(self.n)
+                        ), 
+                        dtype=torch.float32
+                    )
+
+    def predict(self, X):
+        """
+        Predict the values of the regressions
+        """
+        return X @ self.coef
+
+    def residuals(self, X, Y):
+        """
+        Calculate the residuals
+        """
+        return Y - X @ self.coef
+
+    def rank(self, X):
+        """
+        Get hte rank from a single observation
+        """
+        # given some new dataset meta features rank the algorithms:
+        X = torch.tensor(np.kron(np.eye(self.n_algos), X), dtype=torch.float32)
+        Y = torch.diag(self.predict(X))
+
+        # based on the predicted values use
+        _, rank = torch.unique(Y, sorted=True, return_inverse=True)
+        inverted = torch.abs(rank - torch.max(rank))
+        return [x for _, x in sorted(zip(inverted, range(20)))]
 
 
 class Agent:
-    encoder_class = {'AE': AE, 'VAE': VAE}
     nA = None  # number of algorihtms used
 
     def __init__(
             self,
             number_of_algorithms,
-            encoder: str = "AE",
             seed=123546,
-            suggest_topk=2
+            suggest_topk=10
     ):
         """
         Initialize the agent
@@ -1492,22 +1032,18 @@ class Agent:
         Parameters
         ----------
         number_of_algorithms : int
-            The number of algorithms
-
-        encoder : str
-            The encoder to use. 
-            'AE' for the vanilla autoencoder
-            'VAE' for the variational autoencoder
+            The number of algorithm
         
         seed : int
             The seed for the random number generator
         """
 
         Agent.nA = number_of_algorithms
-        self.encoder = encoder
         self.seed = seed
 
         self.suggest_topk = suggest_topk
+        self.counter = 0 
+        self.zero_flag = False
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -1571,23 +1107,21 @@ class Agent:
         dataset_meta_features_df_testing, dataset_meta_feature_tensor_testing = \
             self.valid_dataset._preprocess_dataset_properties_meta_testing(dataset_meta_features)
 
-        dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
+        # fixme: reactivate with encoder!
+        # dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
+
+        int(dataset_meta_features['time_budget'])
 
         # actual resetting
         self.visits = {k: 0 for k in algorithms_meta_features.keys()}
         self.times = {k: 0. for k in algorithms_meta_features.keys()}
         self.obs_performances = {k: 0. for k in algorithms_meta_features.keys()}
 
-        # NOTE: Is this required in the RL setting?
-        # set delta_t's (i.e. budgets for each algo we'd like to inquire)
-        # self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
         self.budgets = self.predict_initial_speed(dataset_meta_features_df_testing)
 
-        # predict the ranking of algorithms for this dataset
-        self.learned_rankings = self.model.predict_algorithms(
-            dataset_meta_feature_tensor_testing,
-            topk=self.nA
-        )[0].tolist()
+        print('Test_data: predicting ranking based on SUR')
+
+        self.learned_rankings = self.model.rank(dataset_meta_feature_tensor_testing)
 
     def meta_train(self,
                    dataset_meta_features,
@@ -1595,15 +1129,8 @@ class Agent:
                    validation_learning_curves,
                    test_learning_curves,
                    # set up the encoder architecture
-                   epochs=10,
-                   pretrain_epochs=50,
                    batch_size=9,
-                   n_compettitors=11,
-                   lr=0.001,
-                   embedding_dim=2,
-                   weights=[1., 1., 1., 1.],
-                   repellent_share=0.33,
-                   training='schedule'):
+                   n_compettitors=11 ):
         """
         Start meta-training the agent with the validation and test learning curves
 
@@ -1660,55 +1187,50 @@ class Agent:
             self.test_dataset.preprocess_with_known_deselection(*test_data)
             self.test_dataset.preprocess_with_known_deselection(*test_data)
 
+        Y = pd.DataFrame.from_dict({i: [lc.final_performance for lc in lc_list] for i, lc_list in
+                                    self.valid_dataset.lc_datasets.items()}, orient='index')
+        Y = torch.tensor(Y.__array__(), dtype=torch.float32)
+        X = self.valid_dataset.datasets_meta_features
+
+        print('Training SUR model for ranking.')
+        self.model = SUR(epsilon=0.001, X_dim=27, y_dim=20)
+        self.model.fit(X, Y, lr=0.005)  # currently learning rate is not working
+
+        
+        observed_rankings = {k: [int(tup[0]) for tup in
+                                 self.valid_dataset.dataset_learning_properties[str(k)].ranking]
+                             for k in self.valid_dataset.ids_datasets}
+
+
+        x = torch.tensor(np.kron(np.eye(self.model.n_algos), X),
+                         dtype=torch.float32)
+        
+        order = self.valid_dataset.datasets_meta_features_df.index
+
+        obs_mat = np.array([
+            observed_rankings[k] for k in order
+        ])
+
+        first_axis = np.shape(obs_mat)[0]
+        temp = np.asarray(self.model.predict(x).detach(), dtype=np.float32)
+        M = temp.T
+
+        relevant = np.array([M[i, first_axis * i:first_axis * (i + 1)] for i in range(20)]).reshape(
+            first_axis, -1)
+
+        mat = [list(sorted([(i, score) for i, score in enumerate(row)], key=lambda x: -x[1]))
+               for row in relevant]
+        true_ranks = [[tup[0] for tup in row] for row in mat]
+
         print('\ntimestamp distribution')
-        print(pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
+        print(
+            pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
 
         print('\nsingle timestamp scores')
-        print(pd.Series(lc.scores for k, lc in self.valid_dataset.lc.items() if len(lc.timestamps) == 1))
+        print(pd.Series(
+            lc.scores for k, lc in self.valid_dataset.lc.items() if len(lc.timestamps) == 1))
 
         self.nA = self.valid_dataset.nA
-
-        # # fixme: move following eda to Dataset_Gravity:
-        # # (0) find out if there are algorithms that perform bad across all tasks
-        # self.valid_dataset.algo_final_performances
-        #
-        # # (1) find if out if there is a good backup algorithm
-        # import numpy as np
-        # import seaborn as sns
-        # import pandas as pd
-        # algo_order = [9, 2, 3, 13, 15, 4, 17, 1, 12, 7, 19, 14, 6, 5, 16, 18, 11, 8, 0, 10]
-        # for k in range(10):
-        #     self.valid_dataset._preprocess_thresholded_algo_performances(k=k)
-        #     (self.valid_dataset.algo_thresholded_rankings != 0).sum(axis=0)
-        #
-        # # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # # ranking[9].value_counts().sort_index().plot.bar() # plot a single algorithm's performances
-        #
-        # # algorithm performances across datasets
-        # for algo in self.valid_dataset.algo_90_performances.columns:
-        #     sns.kdeplot(self.valid_dataset.algo_90_performances[algo], cut=0, label=str(algo))
-        #
-        # plt.xlabel('relative performance')
-        # plt.title('Density of algorithms\'s 90% performance across datasets')
-        # plt.legend()
-        # plt.show()
-        #
-        # # (2) Dataset meta_feature projection
-        # import umap
-        # trans = umap.UMAP(densmap=True, n_neighbors=5, random_state=42).fit(self.valid_dataset.datasets_meta_features_df)
-        # plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5,
-        #             c=self.valid_dataset.algo_final_performances[9] ,cmap='Spectral')
-        # plt.title('Embedding of the training set by densMAP')
-        #
-        # plt.show()
-        #
-        # import umap.plot
-        # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # umap.plot.points(trans, labels=ranking[9], width=500, height=500)
-        # FIXME: start here to find the complementary set.
-        #  1) look at the count of top-k k = 3 and see which are the most promising across all
-        #  2) see how much performance we'd loose if we removed the across all least performing.
-        #     what is the measure here though
 
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
@@ -1720,56 +1242,14 @@ class Agent:
             shuffle=True,
             batch_size=batch_size)
 
-        # TODO: disable: some data exploration
-        # self.test_dataset.plot_convergence90_time()
-        #
-        # for d in dataset_meta_features.keys():
-        #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
-
         # meta_learn convergence speed
+        print('Training 90% convergence speed.')
         self.meta_train_convergence_speed(confidence=0.2)
-        self.meta_train_initial_budgets(confidence=0.8)
 
-        # sanity check: would we surpass a timestamp (and if how many)
-        # predicted_init = self.predict_initial_speed(self.test_dataset.datasets_meta_features_df)
-        # D = self.test_dataset
-        # # D.lc_algos[19], predicted_init[19]
-        # {algo: [sum(soll >= ist) for soll, ist in
-        #         zip(predicted_init[algo], [lc.timestamps for lc in D.lc_algos[algo]])]
-        #  for algo in D.lc_algos.keys()}
+        print('Training initial budget based on timestamps.')
+        self.meta_train_initial_budgets(confidence=0.8, stamp=1)
 
-        # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self.encoder_class[self.encoder](
-            input_dim=self.valid_dataset.n_features,
-            embedding_dim=embedding_dim,
-            hidden_dims=[8, 4],
-            weights=weights,
-            repellent_share=repellent_share,
-            n_algos=self.valid_dataset.nA,
-            device=device,
-
-        )
-
-        if training == 'gravity':
-            tracking, losses, test_losses = self.model.train_gravity(
-                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs], lr=lr)
-
-        elif training == 'schedule':
-            tracking, losses, test_losses = self.model.train_schedule(
-                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
-
-        # raise ValueError()
-        # TODO: checkpointing the model
-        # run_id = hash()
-        # TODO: append hashtable
-        # check_or_create_dir(self.output_dir)
-        #
-        # torch.save(self.model, f'{self.output_dir}')
-
-
-        # TODO: Add Bandit exploration
-        print()
 
     def meta_train_convergence_speed(self, confidence=0.9):
         """
@@ -1785,7 +1265,6 @@ class Agent:
         """
 
         # TODO: also use test dataset info for convergence speed learning
-        print('Training 90% convergence speed.')
         X = self.valid_dataset.datasets_meta_features_df
         Y = self.valid_dataset.algo_convergences90_time
 
@@ -1795,14 +1274,14 @@ class Agent:
             self.qr_models[algo] = QuantileRegressor(loss='quantile', alpha=confidence)
             self.qr_models[algo].fit(X, Y[algo])
 
-    def meta_train_initial_budgets(self, confidence=0.8):
+    def meta_train_initial_budgets(self, confidence=0.8, stamp=1):
         """
         Since the enviroment penalizes allocating to little budget for the first step,
         we calculate the second timestamp's distribution to ensure we have hit the first one
         """
-        print('Training 2nd initial budget')
+
         X = self.valid_dataset.datasets_meta_features_df
-        Y = self.valid_dataset._calc_timestamp_distribution(2)
+        Y = self.valid_dataset._calc_timestamp_distribution(stamp)
 
         self.qr_models_init = {k: None for k in Y.columns}
         for algo in Y.columns:
@@ -1869,158 +1348,42 @@ class Agent:
         (9, 9, 80)
         """
 
-        trials = sum(self.visits.values())
-        counter = trials % self.suggest_topk  # RoundRobin counter
-        self.A = self.learned_rankings[counter]
+        #trials = sum(1 if t != 0 else 0 for t in self.times.values())
+                
 
-        # keep track of spent budget & observed performances
-        if observation is None:
-            # (0) initial selection of A_star
-            self.A_star = self.learned_rankings[0]
+        # If the counter is 0, initialize A_star = A
+        if self.counter == 0:
+            self.A_star = self.learned_rankings[self.counter]
+            self.A = self.learned_rankings[self.counter]
+        
+        #Otherwise, only update A
+        else: 
 
-        else:
-            # normal state
-            # (1) update state information
-            A, C_A, R = observation
-            self.visits[str(A)] += 1
-            self.times[str(A)] += C_A
-            self.obs_performances[str(A)] = R
-
-            # (2) check if we have a new incumbent
-            # TODO get a time discounting in here (because A_star has more time
-            #  allocated already than A)
+            if observation is not None:  # initial observation is None
+                A, C_A, R = observation
+                self.times[str(A)] += C_A
+                self.obs_performances[str(A)] = R
+                self.A = A
+            # If A performed better than A_star, update A_star
             if self.obs_performances[str(self.A)] > self.obs_performances[str(self.A_star)]:
                 self.A_star = self.A
 
+            # Get the new value of A
+            
         # Assign the time budget for the chosen algorithm
-        delta_t = self.budgets[self.A][0] * 0.5
+        
+        if not self.zero_flag:
+            self.zero_flag = True
+            self.A = self.learned_rankings[self.counter]
+            delta_t = self.budgets[self.A][0]*0.5
+            action = (self.A_star, self.A, delta_t)
+            self.counter += 1
+        else:
+            x = self.learned_rankings[self.counter]
+            action = (self.A_star, x, 0.0)
+            self.zero_flag = False        
 
-        action = (self.A_star, self.A, delta_t)
+        if self.counter == self.suggest_topk:
+            self.counter = 0
 
         return action
-
-    def plot_encoder_training(self, losses, ):
-        # plot pretrain loss at each epoch.
-        plt.figure()
-        plt.plot(torch.tensor(losses).numpy(), label="gravity")
-        plt.legend()
-
-        plt.savefig(
-        )
-
-    def plot_current_embedding(self, normalize=False):
-        """
-        Plot the current embedding (both dataset & algorithms) based on the validation dataset.
-        In the case of self.model.embedding_dim > 2, a projection is used.
-        :param normalize: bool. Whether or not the 2D embeddings should be normalized
-        using the dataset's mean and standard deviation.
-
-        """
-        # plot the dataset-algo embeddings 2D
-        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
-        d_test = self.model.encode(D_test)
-
-        d_test = d_test.cpu().detach().numpy()
-        z_algo = self.model.Z_algo.cpu().detach().numpy()
-
-        check_diversity(d_test, 'Dataset')
-        check_diversity(z_algo, 'Algorithm')
-
-        if self.model.embedding_dim == 2:
-            if normalize:
-                d_test = (d_test - d_test.mean(axis=0)) / d_test.std(axis=0)
-                # z_algo = (z_algo - z_algo.mean(axis=0)) / z_algo.std(axis=0)
-                z_algo = (z_algo - d_test.mean(axis=0)) / d_test.std(axis=0)  # normalization based on datasets
-
-            self._plot_embedding2d(d_test, z_algo)
-            return None
-
-        else:
-            # fixme : fix umap collapse? -- when the representation is not diverse
-            try:
-                self._plot_embedding_projection(d_test, z_algo)
-            except:
-                pass  # if umap throghs an error ignore it!
-
-    def _plot_embedding2d(self, d_test, z_algo):
-
-        plt.figure()
-        plt.scatter(d_test[:, 0], d_test[:, 1], label="datasets")
-        plt.scatter(z_algo[:, 0], z_algo[:, 1], label="algorithms")
-        plt.legend()
-        plt.savefig(
-        )
-
-    def _plot_embedding_projection(self, d_test, z_algo, projection='umap'):
-        """
-        higher dimensional embeddings must be projected before being plotted.
-        To do so, the datasets are used to learn a projection, in which the algorithm
-        embeddings are projected. This way, this visualization can be used to see whether or not
-        the learned embedding is a sensible projection.
-        """
-
-        if projection == 'umap':
-            import umap
-
-            trans = umap.UMAP(densmap=True).fit(d_test)
-
-            # plot the current embedding
-            # TODO add colouring c?
-            plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5, cmap='Spectral')  # c=y_train,
-            plt.title('Embedding of the training set by densMAP')
-
-            # embedd the z_algos accordingly:
-            # Consider: This embedding may not be sensible for z_algo!
-            test_embedding = trans.fit_transform(z_algo)
-            plt.scatter(test_embedding[:, 0], test_embedding[:, 1], s=5, cmap='Spectral')
-
-            plt.savefig(
-            )
-
-        elif projection == 'pca':
-            from sklearn.decomposition import PCA
-
-            pca = PCA(n_components=2)
-            d_test_pca = pca.fit_transform(d_test)
-            z_algo_pca = pca.transform(z_algo)
-
-            plt.scatter(d_test_pca[:, 0], d_test_pca[:, 1], s=5, cmap='Spectral')  # c=y_train,
-            plt.scatter(z_algo_pca[:, 0], z_algo_pca[:, 1], s=5, cmap='Spectral')
-            plt.title('Embedding of the training set by densMAP')
-
-            plt.savefig(
-            )
-
-    def measure_embedding_diversity(self):
-        """
-        Calculate the diversity based on euclidiean minimal spanning tree
-        :return:  diversity for datasets, diversity for algos
-        """
-
-        D_test = self.valid_dataloader.dataset.datasets_meta_features.data.to(self.model.device)
-        d_test = self.model.encode(D_test)
-        z_algo = self.model.Z_algo
-
-        d_test_tree = self._calc_min_eucl_spanning_tree(d_test)
-        z_algo_tree = self._calc_min_eucl_spanning_tree(z_algo)
-
-        d_diversity = sum([tup[2]['weight'] for tup in d_test_tree])
-        z_diversity = sum([tup[2]['weight'] for tup in z_algo_tree])
-
-        # sum of weighted edges
-        return d_diversity, z_diversity
-
-    def _calc_min_eucl_spanning_tree(self, d_test: torch.tensor):
-        dist_mat = torch.cdist(d_test, d_test)
-        dist_mat = dist_mat.cpu().detach().numpy()
-
-        nodes = list(range(len(dist_mat)))
-        d = [(src, dst, dist_mat[src, dst]) for src in nodes for dst in nodes if src != dst]
-
-        df = pd.DataFrame(data=d, columns=['src', 'dst', 'eucl'])
-
-        g = Graph()
-        for index, row in df.iterrows():
-            g.add_edge(row['src'], row['dst'], weight=row['eucl'])
-
-        return list(minimum_spanning_edges(g))  # fixme: VAE produces NAN sometimes

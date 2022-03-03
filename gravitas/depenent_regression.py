@@ -23,10 +23,19 @@ class SUR(nn.Module):
         self.loss = lambda X: sum(X ** 2)
         self.coef = nn.Parameter(torch.Tensor(X_dim * y_dim, X_dim * y_dim))
 
-    def fit(self, x, y, lr=0.01, budget=100):
-        self.n, self.n_algos = y.shape  # n being a single regressions' no. of obs.
-        # X = torch.kron(torch.eye(Y.shape[1]), X)
+    def fit(self, x, y, lr=0.01, budget=10_000):
+        """
+        Fit a regression model to the data
 
+        :param x: meta features
+        :param y: labels
+        :param lr: learning rate
+        :param budget: number of iterations for the fit
+
+        """
+        self.n, self.n_algos = y.shape  # n being a single regressions' no. of obs.
+
+        # Kroneckerize the inputs and format the output as a block diagonal matrix
         X = torch.tensor(np.kron(np.eye(self.n_algos), x), dtype=torch.float32)
         Y = torch.block_diag(*[y[:, i].view(-1, 1) for i in range(self.n_algos)])
 
@@ -39,9 +48,7 @@ class SUR(nn.Module):
 
         self.coef_lagged = torch.ones_like(self.coef)
         epoch = 0
-        # fixme: can we actually make it sgd like? despite iterative updating
-        #  so that we actually only partially update gls_bets?
-        # fixme: while loop for convergence with maximal budget (finally: note)
+
         diffs = []
         while not self.converged and epoch < budget:
             # for i in tqdm(range(budget)):
@@ -61,12 +68,6 @@ class SUR(nn.Module):
             if epoch == budget:
                 print('convergence was not reached, but budget depleted')
 
-        print()
-        # fixme: remove plot
-        # import matplotlib.pyplot as plt
-        # plt.plot(torch.tensor(diffs).numpy())
-        # plt.show()
-
     @property
     def converged(self):
         return torch.allclose(self.coef_lagged, self.coef, rtol=self.epsilon)
@@ -75,11 +76,14 @@ class SUR(nn.Module):
         """
         L2 regularized Generalized Linear Coefficent.
         """
-        # return torch.linalg.inv(X.t() @ self.W @ X) @ X.t() @ self.W @ Y
+    
         K = self.lam * torch.eye(X.shape[1])
         return torch.linalg.inv(X.t() @ self.W @ X + K) @ X.t() @ self.W @ Y
 
     def update_cov(self, X, Y):
+        """
+        Update the cov ariance matrix
+        """
         resid = self.residuals(X, Y)
         cov = resid.t() @ resid / self.n
         cov = torch.linalg.inv(cov)
@@ -91,16 +95,22 @@ class SUR(nn.Module):
                         dtype=torch.float32
                     )
 
-        print(sum(torch.diag(resid @ resid.t())))
-
     def predict(self, X):
+        """
+        Predict the values of the regressions
+        """
         return X @ self.coef
 
     def residuals(self, X, Y):
+        """
+        Calculate the residuals
+        """
         return Y - X @ self.coef
 
     def rank(self, X):
-        """single observation"""
+        """
+        Get hte rank from a single observation
+        """
         # given some new dataset meta features rank the algorithms:
         X = torch.tensor(np.kron(np.eye(self.n_algos), X), dtype=torch.float32)
         Y = torch.diag(self.predict(X))
