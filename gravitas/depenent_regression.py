@@ -22,7 +22,7 @@ class SUR(nn.Module):
         self.loss = lambda X: sum(X ** 2)
         self.coef = nn.Parameter(torch.Tensor(X_dim * y_dim, X_dim * y_dim))
 
-    def fit(self, x, y, lr=0.001, budget=10000):
+    def fit(self, x, y, lr=0.001, budget=100):
         self.n, self.n_algos = y.shape  # n being a single regressions' no. of obs.
         # X = torch.kron(torch.eye(Y.shape[1]), X)
 
@@ -54,7 +54,7 @@ class SUR(nn.Module):
             self.coef.data += lr * (diff_vec)
 
             epoch += 1
-            print(epoch)
+            #print(epoch)
 
         else:
             if epoch == budget:

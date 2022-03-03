@@ -11,6 +11,7 @@ from gravitas.dataset_gravitas import Dataset_Gravity
 from gravitas.utils import check_diversity  #
 from gravitas.vae import VAE
 
+import pdb
 
 class Agent:
     encoder_class = {'AE': AE, 'VAE': VAE}
@@ -224,23 +225,32 @@ class Agent:
 
         x = torch.tensor(np.kron(np.eye(self.model.n_algos), X),
                          dtype=torch.float32)
-        ndcg_score(np.asarray().reshape(1, -1),
-                   np.asarray(self.model.predict(x), dtype=np.int64).reshape(1, -1),
-                   k=10, sample_weight=None, ignore_ties=False)
-        for k, x in zip(self.valid_dataset.ids_datasets, X):
-            # print()
+        
+        order = self.valid_dataset.datasets_meta_features_df.index
 
-            ndcg_score(np.asarray(observed_rankings[k]).reshape(1, -1),
-                       np.asarray(self.model.predict(x), dtype=np.int64).reshape(1, -1),
-                       k=10, sample_weight=None, ignore_ties=False)
-            x = torch.tensor(np.kron(np.eye(self.model.n_algos), x),
-                             dtype=torch.float32)
-            y = self.model.rank(x)
-            label_ranking_average_precision_score(np.asarray(observed_rankings[k]),  # .reshape(1,
-                                                  # -1),
-                                                  np.asarray(y.detach().numpy(), dtype=np.float32),
-                                                  # .reshape(1, -1),
-                                                  )
+        # (83, 20)
+        obs_mat = np.array([
+            observed_rankings[k] for k in order
+        ])
+
+        first_axis = np.shape(obs_mat)[0]
+
+        # (1660, 20)
+        temp = np.asarray(self.model.predict(x).detach(), dtype=np.float32)
+        M = temp.T 
+
+        relevant = np.array([M[i, first_axis*i:first_axis*(i+1)] for i in range(20)]).reshape(first_axis,-1)        
+        
+        score = ndcg_score(
+            obs_mat.reshape(first_axis,-1),
+            relevant,
+            k=10, 
+            sample_weight=None, 
+            ignore_ties=False
+        )
+
+        print(f'NDCG score: {score}')
+
 
         print('\ntimestamp distribution')
         print(

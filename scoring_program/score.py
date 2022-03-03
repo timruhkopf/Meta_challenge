@@ -13,8 +13,8 @@ import base64
 verbose = False
 
 # === Setup input/output directories
-# root_dir =  '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
-root_dir = '/home/ruhkopf/PycharmProjects/Meta_challenge/'
+root_dir =  '/'.join(os.getcwd().split('/')[:-1])  # fixing the root to project root and not ingestion_program
+#root_dir = '/home/ruhkopf/PycharmProjects/Meta_challenge/'
 default_input_dir = os.path.join(root_dir, "sample_data/")
 default_output_dir = os.path.join(root_dir, "output/")
 default_program_dir = os.path.join(root_dir, "ingestion_program/")
