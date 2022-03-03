@@ -1320,7 +1320,7 @@ class Agent:
             encoder: str = "AE",
             seed=123546,
             root_dir='',
-            suggest_topk=17
+            suggest_topk=5
     ):
         """
         Initialize the agent
@@ -1496,48 +1496,6 @@ class Agent:
             n_compettitors,
             deselect, topk, deselection_metric)
 
-        # # fixme: move following eda to Dataset_Gravity:
-        # # (0) find out if there are algorithms that perform bad across all tasks
-        # self.valid_dataset.algo_final_performances
-        #
-        # # (1) find if out if there is a good backup algorithm
-        # import numpy as np
-        # import seaborn as sns
-        # import pandas as pd
-        # algo_order = [9, 2, 3, 13, 15, 4, 17, 1, 12, 7, 19, 14, 6, 5, 16, 18, 11, 8, 0, 10]
-        # for k in range(10):
-        #     self.valid_dataset._preprocess_thresholded_algo_performances(k=k)
-        #     (self.valid_dataset.algo_thresholded_rankings != 0).sum(axis=0)
-        #
-        # # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # # ranking[9].value_counts().sort_index().plot.bar() # plot a single algorithm's performances
-        #
-        # # algorithm performances across datasets
-        # for algo in self.valid_dataset.algo_90_performances.columns:
-        #     sns.kdeplot(self.valid_dataset.algo_90_performances[algo], cut=0, label=str(algo))
-        #
-        # plt.xlabel('relative performance')
-        # plt.title('Density of algorithms\'s 90% performance across datasets')
-        # plt.legend()
-        # plt.show()
-        #
-        # # (2) Dataset meta_feature projection
-        # import umap
-        # trans = umap.UMAP(densmap=True, n_neighbors=5, random_state=42).fit(self.valid_dataset.datasets_meta_features_df)
-        # plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5,
-        #             c=self.valid_dataset.algo_final_performances[9] ,cmap='Spectral')
-        # plt.title('Embedding of the training set by densMAP')
-        #
-        # plt.show()
-        #
-        # import umap.plot
-        # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # umap.plot.points(trans, labels=ranking[9], width=500, height=500)
-        # FIXME: start here to find the complementary set.
-        #  1) look at the count of top-k k = 3 and see which are the most promising across all
-        #  2) see how much performance we'd loose if we removed the across all least performing.
-        #     what is the measure here though
-
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
@@ -1564,12 +1522,6 @@ class Agent:
             self.test_dataset,
             shuffle=True,
             batch_size=batch_size)
-
-        # TODO: disable: some data exploration
-        # self.test_dataset.plot_convergence90_time()
-        #
-        # for d in dataset_meta_features.keys():
-        #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
 
         # meta_learn convergence speed
         self.meta_train_convergence_speed(confidence=0.2)
@@ -1708,20 +1660,21 @@ class Agent:
         # Assign the time budget for the chosen algorithm
         if not self.zero_flag:
             self.A = self.learned_rankings[self.counter]
-            delta_t = self.budgets[self.A][0]
-            self.zero_flag = True
+            delta_t = self.budgets[self.A][0] 
+            #self.zero_flag = True
             action = (self.A_star, self.A, delta_t)
             self.counter += 1
 
         else:
             x = self.learned_rankings[self.counter]
             action = (self.A_star, x, 0.0)
-            self.zero_flag = False
+            #self.zero_flag = False
        
         
 
         if self.counter == self.suggest_topk:
             self.counter = 0
+            self.zero_flag = not self.zero_flag
 
         return action
 
