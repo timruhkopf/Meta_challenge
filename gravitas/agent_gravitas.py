@@ -110,7 +110,10 @@ class Agent:
         dataset_meta_features_df_testing, dataset_meta_feature_tensor_testing = \
             self.valid_dataset._preprocess_dataset_properties_meta_testing(dataset_meta_features)
 
-        dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
+        # fixme: reactivate with encoder!
+        # dataset_meta_feature_tensor_testing = dataset_meta_feature_tensor_testing.to(self.model.device)
+
+        int(dataset_meta_features['time_budget'])
 
         # actual resetting
         self.visits = {k: 0 for k in algorithms_meta_features.keys()}
@@ -123,10 +126,14 @@ class Agent:
         self.budgets = self.predict_initial_speed(dataset_meta_features_df_testing)
 
         # predict the ranking of algorithms for this dataset
-        self.learned_rankings = self.model.predict_algorithms(
-            dataset_meta_feature_tensor_testing,
-            topk=self.nA
-        )[0].tolist()
+        # print('Test_data: predicting ranking based on encoder')
+        # self.learned_rankings = self.model.predict_algorithms(
+        #     dataset_meta_feature_tensor_testing,
+        #     topk=self.nA
+        # )[0].tolist()
+
+        print('Test_data: predicting ranking based on SUR')
+        self.learned_rankings = self.model.rank(dataset_meta_feature_tensor_testing)
 
     def meta_train(self,
                    dataset_meta_features,
@@ -205,8 +212,9 @@ class Agent:
         Y = torch.tensor(Y.__array__(), dtype=torch.float32)
         X = self.valid_dataset.datasets_meta_features
 
-        reg = SUR(epsilon=0.05, X_dim=27, y_dim=20)
-        reg.fit(X, Y, lr=0.005)
+        print('Training SUR model for ranking.')
+        self.model = SUR(epsilon=0.01, X_dim=27, y_dim=20)
+        self.model.fit(X, Y, lr=0.005)  # currently learning rate is not working
 
         print('\ntimestamp distribution')
         print(pd.Series(len(lc.timestamps) for k, lc in self.valid_dataset.lc.items()).value_counts())
@@ -275,7 +283,10 @@ class Agent:
         #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
 
         # meta_learn convergence speed
-        self.meta_train_convergence_speed(confidence=0.2)
+        print('Training 90% convergence speed.')
+        self.meta_train_convergence_speed(confidence=0.9)
+
+        print('Training initial budget based on timestamps.')
         self.meta_train_initial_budgets(confidence=0.8, stamp=1)
 
         # sanity check: would we surpass a timestamp (and if how many)
@@ -288,24 +299,24 @@ class Agent:
 
         # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self.encoder_class[self.encoder](
-            input_dim=self.valid_dataset.n_features,
-            embedding_dim=embedding_dim,
-            hidden_dims=[8, 4],
-            weights=weights,
-            repellent_share=repellent_share,
-            n_algos=self.valid_dataset.nA,
-            device=device,
-
-        )
-
-        if training == 'gravity':
-            tracking, losses, test_losses = self.model.train_gravity(
-                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs], lr=lr)
-
-        elif training == 'schedule':
-            tracking, losses, test_losses = self.model.train_schedule(
-                self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
+        # self.model = self.encoder_class[self.encoder](
+        #     input_dim=self.valid_dataset.n_features,
+        #     embedding_dim=embedding_dim,
+        #     hidden_dims=[8, 4],
+        #     weights=weights,
+        #     repellent_share=repellent_share,
+        #     n_algos=self.valid_dataset.nA,
+        #     device=device,
+        #
+        # )
+        #
+        # if training == 'gravity':
+        #     tracking, losses, test_losses = self.model.train_gravity(
+        #         self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs], lr=lr)
+        #
+        # elif training == 'schedule':
+        #     tracking, losses, test_losses = self.model.train_schedule(
+        #         self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
 
         # raise ValueError()
         # TODO: checkpointing the model
@@ -336,7 +347,6 @@ class Agent:
         """
 
         # TODO: also use test dataset info for convergence speed learning
-        print('Training 90% convergence speed.')
         X = self.valid_dataset.datasets_meta_features_df
         Y = self.valid_dataset.algo_convergences90_time
 
@@ -351,7 +361,7 @@ class Agent:
         Since the enviroment penalizes allocating to little budget for the first step,
         we calculate the second timestamp's distribution to ensure we have hit the first one
         """
-        print('Training 2nd initial budget')
+
         X = self.valid_dataset.datasets_meta_features_df
         Y = self.valid_dataset._calc_timestamp_distribution(stamp)
 
