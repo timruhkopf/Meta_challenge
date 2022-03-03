@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+import pdb
 
 class SUR(nn.Module):
     # TODO regularization on the coefficients?
@@ -22,7 +23,7 @@ class SUR(nn.Module):
         self.loss = lambda X: sum(X ** 2)
         self.coef = nn.Parameter(torch.Tensor(X_dim * y_dim, X_dim * y_dim))
 
-    def fit(self, x, y, lr=0.001, budget=100):
+    def fit(self, x, y, lr=0.01, budget=100):
         self.n, self.n_algos = y.shape  # n being a single regressions' no. of obs.
         # X = torch.kron(torch.eye(Y.shape[1]), X)
 
@@ -71,7 +72,9 @@ class SUR(nn.Module):
         return torch.allclose(self.coef_lagged, self.coef, rtol=self.epsilon)
 
     def gls_beta(self, X, Y):
-        """L2 regularized Generalized Linear Coefficent."""
+        """
+        L2 regularized Generalized Linear Coefficent.
+        """
         # return torch.linalg.inv(X.t() @ self.W @ X) @ X.t() @ self.W @ Y
         K = self.lam * torch.eye(X.shape[1])
         return torch.linalg.inv(X.t() @ self.W @ X + K) @ X.t() @ self.W @ Y
@@ -79,7 +82,15 @@ class SUR(nn.Module):
     def update_cov(self, X, Y):
         resid = self.residuals(X, Y)
         cov = resid.t() @ resid / self.n
-        self.W = torch.tensor(np.kron(cov.detach().numpy(), np.eye(self.n)), dtype=torch.float32)
+        cov = torch.linalg.inv(cov)
+        self.W = torch.tensor(
+                            np.kron(
+                            cov.detach().numpy(), 
+                            np.eye(self.n)
+                        ), 
+                        dtype=torch.float32
+                    )
+
         print(sum(torch.diag(resid @ resid.t())))
 
     def predict(self, X):

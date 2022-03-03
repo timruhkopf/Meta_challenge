@@ -4,6 +4,9 @@ import torch
 from networkx import *
 from sklearn.ensemble.gradient_boosting import GradientBoostingRegressor as QuantileRegressor
 from torch.utils.data import DataLoader
+import numpy as np
+
+from sklearn.metrics import label_ranking_average_precision_score  as LRAP
 
 # FIXME: remove this block for agent_submission
 from gravitas.autoencoder import AE
@@ -11,6 +14,7 @@ from gravitas.dataset_gravitas import Dataset_Gravity
 from gravitas.utils import check_diversity  #
 from gravitas.vae import VAE
 
+import pdb
 
 class Agent:
     encoder_class = {'AE': AE, 'VAE': VAE}
@@ -22,7 +26,7 @@ class Agent:
             encoder: str = "AE",
             seed=123546,
             root_dir='',
-            suggest_topk=2
+            suggest_topk=10
     ):
         """
         Initialize the agent
@@ -47,6 +51,9 @@ class Agent:
 
         self.root_dir = root_dir
         self.suggest_topk = suggest_topk
+        self.counter = 0 
+        self.zero_flag = False
+
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -125,14 +132,16 @@ class Agent:
         # self.budgets = self.predict_convergence_speed(dataset_meta_features_df_testing)
         self.budgets = self.predict_initial_speed(dataset_meta_features_df_testing)
 
-        # predict the ranking of algorithms for this dataset
-        # print('Test_data: predicting ranking based on encoder')
-        # self.learned_rankings = self.model.predict_algorithms(
-        #     dataset_meta_feature_tensor_testing,
-        #     topk=self.nA
-        # )[0].tolist()
-
         print('Test_data: predicting ranking based on SUR')
+
+        # x = torch.tensor(np.kron(
+        #                     np.eye(self.model.n_algos), 
+        #                     dataset_meta_feature_tensor_testing
+        #                 ),
+        #                 dtype=torch.float32
+        #         ) 
+
+
         self.learned_rankings = self.model.rank(dataset_meta_feature_tensor_testing)
 
     def meta_train(self,
@@ -216,8 +225,7 @@ class Agent:
         self.model = SUR(epsilon=0.001, X_dim=27, y_dim=20)
         self.model.fit(X, Y, lr=0.005)  # currently learning rate is not working
 
-        from sklearn.metrics import ndcg_score
-        import numpy as np
+        
         observed_rankings = {k: [int(tup[0]) for tup in
                                  self.valid_dataset.dataset_learning_properties[str(k)].ranking]
                              for k in self.valid_dataset.ids_datasets}
@@ -246,15 +254,7 @@ class Agent:
                for row in relevant]
         true_ranks = [[tup[0] for tup in row] for row in mat]
 
-        score = ndcg_score(
-            obs_mat.reshape(first_axis, -1),
-            relevant,
-            k=10,
-            sample_weight=None,
-            ignore_ties=False
-        )
-
-        print(f'NDCG score: {score}')
+        
 
 
         print('\ntimestamp distribution')
@@ -267,48 +267,6 @@ class Agent:
 
         self.nA = self.valid_dataset.nA
 
-        # # fixme: move following eda to Dataset_Gravity:
-        # # (0) find out if there are algorithms that perform bad across all tasks
-        # self.valid_dataset.algo_final_performances
-        #
-        # # (1) find if out if there is a good backup algorithm
-        # import numpy as np
-        # import seaborn as sns
-        # import pandas as pd
-        # algo_order = [9, 2, 3, 13, 15, 4, 17, 1, 12, 7, 19, 14, 6, 5, 16, 18, 11, 8, 0, 10]
-        # for k in range(10):
-        #     self.valid_dataset._preprocess_thresholded_algo_performances(k=k)
-        #     (self.valid_dataset.algo_thresholded_rankings != 0).sum(axis=0)
-        #
-        # # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # # ranking[9].value_counts().sort_index().plot.bar() # plot a single algorithm's performances
-        #
-        # # algorithm performances across datasets
-        # for algo in self.valid_dataset.algo_90_performances.columns:
-        #     sns.kdeplot(self.valid_dataset.algo_90_performances[algo], cut=0, label=str(algo))
-        #
-        # plt.xlabel('relative performance')
-        # plt.title('Density of algorithms\'s 90% performance across datasets')
-        # plt.legend()
-        # plt.show()
-        #
-        # # (2) Dataset meta_feature projection
-        # import umap
-        # trans = umap.UMAP(densmap=True, n_neighbors=5, random_state=42).fit(self.valid_dataset.datasets_meta_features_df)
-        # plt.scatter(trans.embedding_[:, 0], trans.embedding_[:, 1], s=5,
-        #             c=self.valid_dataset.algo_final_performances[9] ,cmap='Spectral')
-        # plt.title('Embedding of the training set by densMAP')
-        #
-        # plt.show()
-        #
-        # import umap.plot
-        # ranking = np.argsort(self.valid_dataset.algo_final_performances, axis=1)
-        # umap.plot.points(trans, labels=ranking[9], width=500, height=500)
-        # FIXME: start here to find the complementary set.
-        #  1) look at the count of top-k k = 3 and see which are the most promising across all
-        #  2) see how much performance we'd loose if we removed the across all least performing.
-        #     what is the measure here though
-
         self.valid_dataloader = DataLoader(
             self.valid_dataset,
             shuffle=True,
@@ -319,12 +277,6 @@ class Agent:
             shuffle=True,
             batch_size=batch_size)
 
-        # TODO: disable: some data exploration
-        # self.test_dataset.plot_convergence90_time()
-        #
-        # for d in dataset_meta_features.keys():
-        #     self.test_dataset.plot_learning_curves(dataset_id=int(d))
-
         # meta_learn convergence speed
         print('Training 90% convergence speed.')
         self.meta_train_convergence_speed(confidence=0.9)
@@ -332,46 +284,8 @@ class Agent:
         print('Training initial budget based on timestamps.')
         self.meta_train_initial_budgets(confidence=0.8, stamp=1)
 
-        # sanity check: would we surpass a timestamp (and if how many)
-        # predicted_init = self.predict_initial_speed(self.test_dataset.datasets_meta_features_df)
-        # D = self.test_dataset
-        # # D.lc_algos[19], predicted_init[19]
-        # {algo: [sum(soll >= ist) for soll, ist in
-        #         zip(predicted_init[algo], [lc.timestamps for lc in D.lc_algos[algo]])]
-        #  for algo in D.lc_algos.keys()}
-
-        # Training (algo-ranking) procedure
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # self.model = self.encoder_class[self.encoder](
-        #     input_dim=self.valid_dataset.n_features,
-        #     embedding_dim=embedding_dim,
-        #     hidden_dims=[8, 4],
-        #     weights=weights,
-        #     repellent_share=repellent_share,
-        #     n_algos=self.valid_dataset.nA,
-        #     device=device,
-        #
-        # )
-        #
-        # if training == 'gravity':
-        #     tracking, losses, test_losses = self.model.train_gravity(
-        #         self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs], lr=lr)
-        #
-        # elif training == 'schedule':
-        #     tracking, losses, test_losses = self.model.train_schedule(
-        #         self.valid_dataloader, self.test_dataloader, epochs=[pretrain_epochs, epochs, epochs], lr=lr)
-
-        # raise ValueError()
-        # TODO: checkpointing the model
-        # run_id = hash()
-        # TODO: append hashtable
-        # self.output_dir = f'{self.root_dir}/output/{self.encoder}{run_id}'
-        # check_or_create_dir(self.output_dir)
-        #
-        # torch.save(self.model, f'{self.output_dir}')
-
-        # self.plot_encoder_training(losses)
-        # self.plot_current_embedding()
+        
 
         # TODO: Add Bandit exploration
         print()
@@ -473,33 +387,48 @@ class Agent:
         (9, 9, 80)
         """
 
-        trials = sum(self.visits.values())
-        counter = trials % self.suggest_topk  # RoundRobin counter
-        self.A = self.learned_rankings[counter]
+        #trials = sum(1 if t != 0 else 0 for t in self.times.values())
+                
 
-        # keep track of spent budget & observed performances
-        if observation is None:
-            # (0) initial selection of A_star
-            self.A_star = self.learned_rankings[0]
+        # If the counter is 0, initialize A_star = A
+        if self.counter == 0:
+            self.A_star = self.learned_rankings[self.counter]
+            self.A = self.learned_rankings[self.counter]
+        
+        #Otherwise, only update A
+        else: 
 
-        else:
-            # normal state
-            # (1) update state information
-            A, C_A, R = observation
-            self.visits[str(A)] += 1
-            self.times[str(A)] += C_A
-            self.obs_performances[str(A)] = R
-
-            # (2) check if we have a new incumbent
-            # TODO get a time discounting in here (because A_star has more time
-            #  allocated already than A)
+            if observation is not None:  # initial observation is None
+                A, C_A, R = observation
+                self.times[str(A)] += C_A
+                self.obs_performances[str(A)] = R
+                self.A = A
+            # If A performed better than A_star, update A_star
             if self.obs_performances[str(self.A)] > self.obs_performances[str(self.A_star)]:
                 self.A_star = self.A
 
-        # Assign the time budget for the chosen algorithm
-        delta_t = self.budgets[self.A][0] * 0.5
+            # Get the new value of A
+            
 
-        action = (self.A_star, self.A, delta_t)
+
+        # Assign the time budget for the chosen algorithm
+        
+        if not self.zero_flag:
+            delta_t = self.budgets[self.A][0]*0.5
+            self.zero_flag = True
+            self.A = self.learned_rankings[self.counter]
+            action = (self.A_star, self.A, delta_t)
+
+        else:
+            x = self.learned_rankings[self.counter]
+            action = (self.A_star, x, 0.0)
+            self.zero_flag = False
+       
+        self.counter += 1
+
+        if self.counter == self.suggest_topk:
+            self.counter = 0
+
         return action
 
     def plot_encoder_training(self, losses, ):
@@ -632,4 +561,6 @@ class Agent:
         for index, row in df.iterrows():
             g.add_edge(row['src'], row['dst'], weight=row['eucl'])
 
-        return list(minimum_spanning_edges(g))  # fixme: VAE produces NAN sometimes
+        return list(minimum_spanning_edges(g)) 
+
+
